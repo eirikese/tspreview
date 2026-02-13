@@ -1,0 +1,1156 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>Video + GPS CSV Sync</title>
+
+  <!-- Leaflet (map) -->
+  <link
+    rel="stylesheet"
+    href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+    integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
+    crossorigin=""
+  />
+  <script
+    src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+    integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+    crossorigin=""
+  ></script>
+
+  <!-- Chart.js -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+
+  <style>
+    :root{
+      --bg:#0b0f14; --panel:#111823; --panel2:#0e151f;
+      --text:#e6edf3; --muted:#9fb0c0; --accent:#67e8f9;
+      --border:rgba(255,255,255,.10); --shadow:rgba(0,0,0,.35);
+      --radius:14px; --gap:12px; --chartH:340px;
+      --scrub:#ff3b30; /* red */
+    }
+    *{box-sizing:border-box}
+    html,body{height:100%;margin:0;background:var(--bg);color:var(--text);
+      font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Arial}
+    .wrap{height:100dvh;padding:12px;display:grid;grid-template-rows:auto 1fr var(--chartH);gap:var(--gap)}
+    .header{
+      display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:space-between;
+      background:linear-gradient(180deg,var(--panel),var(--panel2));
+      border:1px solid var(--border);border-radius:var(--radius);
+      padding:10px;box-shadow:0 10px 30px var(--shadow)
+    }
+    .headerLeft{display:flex;flex-wrap:wrap;gap:10px;align-items:center}
+    .header .block{display:flex;flex-direction:column;gap:4px;min-width:180px}
+    .header label{font-size:12px;color:var(--muted)}
+    .header input[type="file"], .header input[type="number"], .header button{
+      background:rgba(255,255,255,.05);border:1px solid var(--border);
+      color:var(--text);border-radius:10px;padding:8px 10px;font-size:14px
+    }
+    .header button{cursor:pointer;user-select:none;transition:transform .04s ease}
+    .header button:active{transform:scale(.99)}
+    .header .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+
+    .notice{
+      max-width:min(520px, 100%);
+      font-size:12px;
+      color:rgba(255,255,255,0.85);
+      background:rgba(255,59,48,0.12);
+      border:1px solid rgba(255,59,48,0.35);
+      padding:8px 10px;
+      border-radius:12px;
+      display:none;
+    }
+
+    .content{display:grid;grid-template-columns:1fr 1fr;gap:var(--gap);min-height:260px}
+    .card{
+      background:linear-gradient(180deg,var(--panel),var(--panel2));
+      border:1px solid var(--border);border-radius:var(--radius);
+      overflow:hidden;box-shadow:0 10px 30px var(--shadow);position:relative;min-height:240px
+    }
+    .cardTitle{
+      position:absolute;top:10px;left:10px;z-index:10;font-size:12px;color:var(--muted);
+      background:rgba(0,0,0,.35);border:1px solid rgba(255,255,255,.10);
+      padding:6px 10px;border-radius:999px;backdrop-filter:blur(6px)
+    }
+    video{width:100%;height:100%;object-fit:contain;background:#000}
+    #map{width:100%;height:100%}
+
+    .chartCard{
+      background:linear-gradient(180deg,var(--panel),var(--panel2));
+      border:1px solid var(--border);border-radius:var(--radius);
+      overflow:hidden;box-shadow:0 10px 30px var(--shadow);
+      padding:8px 10px 10px 10px;position:relative
+    }
+    .pill{
+      font-size:12px;color:var(--muted);background:rgba(0,0,0,.35);
+      border:1px solid rgba(255,255,255,.10);padding:6px 10px;border-radius:999px
+    }
+    .status{font-size:12px;color:var(--muted);display:flex;gap:12px;flex-wrap:wrap;align-items:center;margin-top:6px}
+    .status b{color:var(--text);font-weight:600}
+
+    .toolbarRow{
+      display:flex;gap:10px;align-items:center;justify-content:space-between;flex-wrap:wrap;
+      margin:8px 0 6px 0;
+    }
+    .zoomGroup,.playGroup{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+    .toolbarRow button{
+      background:rgba(255,255,255,.05);border:1px solid var(--border);
+      color:var(--text);border-radius:10px;padding:6px 10px;font-size:14px;cursor:pointer;
+      user-select:none;
+    }
+    .toolbarRow button:active{transform:scale(.99)}
+    .playGroup{margin:0 auto} /* keeps it centered when room allows */
+
+    #chartWrap{position:relative;height:170px;touch-action:none}
+    #chart{width:100%;height:170px}
+
+    #videoTimelineWrap{margin-top:8px;touch-action:none}
+    #videoTimeline{
+      width:100%;
+      height:92px;
+      border-radius:12px;
+      border:1px solid rgba(255,255,255,.10);
+      background:rgba(0,0,0,.25);
+      touch-action:none;
+    }
+
+    .small{font-size:12px;color:var(--muted);line-height:1.3;margin-top:6px}
+
+    @media (max-width: 900px){
+      .content{grid-template-columns:1fr}
+      :root{--chartH:410px}
+      #chartWrap{height:200px}
+      #chart{height:200px}
+      #videoTimeline{height:108px}
+      .playGroup{margin:0} /* on narrow screens just flow normally */
+    }
+  </style>
+</head>
+
+<body>
+  <div class="wrap">
+    <div class="header">
+      <div class="headerLeft">
+        <div class="block">
+          <label>Video (local)</label>
+          <input id="videoFile" type="file" accept="video/*" />
+        </div>
+
+        <div class="block">
+          <label>CSV (Vakaros or RED format)</label>
+          <input id="csvFile" type="file" accept=".csv,text/csv" />
+        </div>
+
+        <div class="block" style="min-width:380px;">
+          <label>Sync offset (seconds) — GPS elapsed = videoTime + offset</label>
+          <div class="row">
+            <input id="offsetSec" type="number" step="0.1" value="0" style="width:110px;" />
+            <button id="btnSetOffset" title="Offset = centerTime - currentVideoTime">Set offset from center</button>
+            <button id="btnFit" title="Fit map to track">Fit track</button>
+          </div>
+        </div>
+
+        <div class="block" style="min-width:240px;">
+          <label>Version</label>
+          <div class="small" style="margin:0;">v0.5 — dual CSV formats + torso angle + video/outside notice</div>
+        </div>
+      </div>
+
+      <div id="notice" class="notice"></div>
+    </div>
+
+    <div class="content">
+      <div class="card">
+        <div class="cardTitle">Video</div>
+        <video id="video" controls playsinline></video>
+      </div>
+
+      <div class="card">
+        <div class="cardTitle">GPS track</div>
+        <div id="map"></div>
+      </div>
+    </div>
+
+    <div class="chartCard">
+      <div style="display:flex;gap:10px;align-items:center;justify-content:space-between;flex-wrap:wrap;">
+        <div class="pill">SOG (knots) — drag to pan; red center scrub; marker follows</div>
+        <div class="pill">Video timeline below — segment shown when video overlaps</div>
+      </div>
+
+      <div class="toolbarRow">
+        <div class="zoomGroup">
+          <button id="zoomIn" title="Zoom in">+</button>
+          <button id="zoomOut" title="Zoom out">−</button>
+          <button id="centerStart" title="Center near start">Center start</button>
+        </div>
+
+        <div class="playGroup">
+          <button id="back10" title="Back 10 seconds">−10s</button>
+          <button id="playPause" title="Play / Pause">Play</button>
+          <button id="fwd10" title="Forward 10 seconds">+10s</button>
+        </div>
+
+        <div style="min-width:1px;"></div>
+      </div>
+
+      <div class="status">
+        <span>center t: <b id="tRead">—</b></span>
+        <span>SOG: <b id="sogRead">—</b> kt</span>
+        <span>COG: <b id="cogRead">—</b>°</span>
+        <span>HDG: <b id="hdgRead">—</b>°</span>
+        <span>Heel: <b id="heelRead">—</b>°</span>
+        <span>Trim: <b id="trimRead">—</b>°</span>
+        <span>Torso: <b id="torsoRead">—</b>°</span>
+        <span>video t: <b id="vRead">—</b></span>
+        <span>video@center: <b id="inVidRead">—</b></span>
+      </div>
+
+      <div id="chartWrap">
+        <canvas id="chart"></canvas>
+      </div>
+
+      <div id="videoTimelineWrap">
+        <canvas id="videoTimeline"></canvas>
+      </div>
+
+      <div class="small">
+        Scrub works with CSV only. If a video exists, it only seeks/plays while the red center line is inside the video segment.
+        If the video lies partly/entirely outside the CSV time, you’ll see a notice in the header.
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // =========================
+    // Helpers
+    // =========================
+    function clamp(v,a,b){ return Math.max(a, Math.min(b, v)); }
+
+    function parseISOish(ts) {
+      if (!ts) return null;
+      // Accept: 2026-02-13T14:08:18.052+0000 OR ...Z
+      const fixed = ts.replace(/([+-]\d{2})(\d{2})$/, "$1:$2");
+      const d = new Date(fixed);
+      return isNaN(d.getTime()) ? null : d;
+    }
+
+    function fmtClock(sec){
+      if (!Number.isFinite(sec)) return "—";
+      sec = Math.max(0, sec);
+      const h = Math.floor(sec/3600);
+      const m = Math.floor((sec%3600)/60);
+      const s = Math.floor(sec%60);
+      const ms = Math.floor((sec - Math.floor(sec))*1000);
+      if (h>0) return `${h}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}.${String(ms).padStart(3,'0')}`;
+      return `${m}:${String(s).padStart(2,'0')}.${String(ms).padStart(3,'0')}`;
+    }
+
+    function showNotice(msg){
+      const el = document.getElementById("notice");
+      if (!msg){
+        el.style.display = "none";
+        el.textContent = "";
+        return;
+      }
+      el.textContent = msg;
+      el.style.display = "block";
+    }
+
+    function toNum(x){
+      const v = parseFloat(x);
+      return Number.isFinite(v) ? v : NaN;
+    }
+
+    function splitCSVLine(line){
+      // Your samples are simple CSV without quoted commas -> fast split
+      // (If you later get quoted fields, replace this with a proper CSV parser.)
+      return line.split(",").map(s => s.trim());
+    }
+
+    // =========================
+    // State
+    // =========================
+    const state = {
+      // unified internal points:
+      // { te, tAbs: Date|null, lat, lon, sogKt, cog, hdg, heel, trim, torso }
+      points: [],
+      t0Abs: null,
+      duration: 0,
+      padStartSec: 3.0,
+
+      centerTe: -2.0,
+      spanSec: 60,
+
+      chart: null,
+
+      poly: null,
+      marker: null,
+
+      dragging: false,
+      dragStartX: 0,
+      dragStartCenter: 0,
+
+      vLoaded: false,
+      vDuration: NaN,
+
+      playing: false,
+      playLastTs: 0,
+      raf: null,
+
+      lastIdx: 0
+    };
+
+    // =========================
+    // DOM
+    // =========================
+    const videoEl = document.getElementById("video");
+    const videoFileEl = document.getElementById("videoFile");
+    const csvFileEl = document.getElementById("csvFile");
+    const offsetEl = document.getElementById("offsetSec");
+    const btnSetOffset = document.getElementById("btnSetOffset");
+    const btnFit = document.getElementById("btnFit");
+
+    const zoomInBtn = document.getElementById("zoomIn");
+    const zoomOutBtn = document.getElementById("zoomOut");
+    const centerStartBtn = document.getElementById("centerStart");
+
+    const back10Btn = document.getElementById("back10");
+    const playPauseBtn = document.getElementById("playPause");
+    const fwd10Btn = document.getElementById("fwd10");
+
+    const tRead = document.getElementById("tRead");
+    const sogRead = document.getElementById("sogRead");
+    const cogRead = document.getElementById("cogRead");
+    const hdgRead = document.getElementById("hdgRead");
+    const heelRead = document.getElementById("heelRead");
+    const trimRead = document.getElementById("trimRead");
+    const torsoRead = document.getElementById("torsoRead");
+    const vRead = document.getElementById("vRead");
+    const inVidRead = document.getElementById("inVidRead");
+
+    const chartCanvas = document.getElementById("chart");
+    const videoTimeline = document.getElementById("videoTimeline");
+    const vtCtx = videoTimeline.getContext("2d");
+
+    // =========================
+    // Map
+    // =========================
+    const map = L.map("map", { zoomControl: true });
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      maxZoom: 19,
+      attribution: "&copy; OpenStreetMap contributors"
+    }).addTo(map);
+    map.setView([0,0], 2);
+
+    function fitTrack(){
+      if (!state.poly) return;
+      const b = state.poly.getBounds();
+      if (b.isValid()) map.fitBounds(b.pad(0.1));
+    }
+
+    // =========================
+    // Chart (SOG)
+    // =========================
+    const centerLinePlugin = {
+      id: "centerLine",
+      afterDatasetsDraw(chart){
+        const yScale = chart.scales.y;
+        if (!yScale) return;
+        const x = (chart.chartArea.left + chart.chartArea.right) / 2;
+        const ctx = chart.ctx;
+        ctx.save();
+        ctx.beginPath();
+        ctx.lineWidth = 2;
+        ctx.strokeStyle = "#ff3b30";
+        ctx.moveTo(x, yScale.top);
+        ctx.lineTo(x, yScale.bottom);
+        ctx.stroke();
+        ctx.restore();
+      }
+    };
+
+    function makeChart(){
+      const ctx = chartCanvas.getContext("2d");
+      const data = state.points.map(p => ({ x: p.te, y: p.sogKt }));
+
+      if (state.chart) state.chart.destroy();
+
+      state.chart = new Chart(ctx, {
+        type: "line",
+        data: { datasets: [{ data, borderWidth: 2, pointRadius: 0, tension: 0.15 }] },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          animation: false,
+          events: [], // we handle pointer input
+          plugins: { legend: { display: false } },
+          scales: {
+            x: {
+              type: "linear",
+              title: { display: true, text: "Time (s from recording start)" },
+              grid: { color: "rgba(255,255,255,0.08)" },
+              ticks: { color: "rgba(255,255,255,0.75)" }
+            },
+            y: {
+              title: { display: true, text: "Knots" },
+              grid: { color: "rgba(255,255,255,0.08)" },
+              ticks: { color: "rgba(255,255,255,0.75)" }
+            }
+          }
+        },
+        plugins: [centerLinePlugin]
+      });
+
+      applyWindow(true);
+    }
+
+    function applyWindow(redrawTimeline){
+      if (!state.chart) return;
+
+      const minTe = -state.padStartSec;
+      const maxTe = state.duration;
+
+      state.centerTe = clamp(state.centerTe, minTe, maxTe);
+
+      const spanMax = Math.max(2, (maxTe - minTe) || 2);
+      const span = clamp(state.spanSec, 2, spanMax);
+      const half = span / 2;
+
+      let wMin = state.centerTe - half;
+      let wMax = state.centerTe + half;
+
+      if (wMin < minTe) { wMax -= (wMin - minTe); wMin = minTe; }
+      if (wMax > maxTe) { wMin -= (wMax - maxTe); wMax = maxTe; }
+
+      wMin = clamp(wMin, minTe, maxTe);
+      wMax = clamp(wMax, minTe, maxTe);
+
+      state.chart.options.scales.x.min = wMin;
+      state.chart.options.scales.x.max = wMax;
+      state.chart.update("none");
+
+      if (redrawTimeline) drawVideoTimeline();
+    }
+
+    // =========================
+    // CSV parsing: Vakaros + RED format
+    // =========================
+    function detectFormat(headerLower){
+      if (headerLower.includes("sog_kts") && headerLower.includes("timestamp")) return "vakaros";
+      if (headerLower.includes("unit_id") && headerLower.includes("timestamp_ms") && headerLower.includes("sog_mps")) return "red";
+      return "unknown";
+    }
+
+    async function loadCSV(file){
+      const text = await file.text();
+      const lines = text.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+      if (lines.length < 2) throw new Error("CSV seems empty.");
+
+      const header = splitCSVLine(lines[0]).map(s => s.toLowerCase());
+      const idx = (name) => header.indexOf(name.toLowerCase());
+      const fmt = detectFormat(header);
+
+      if (fmt === "unknown"){
+        throw new Error("Unknown CSV format. Expected Vakaros (timestamp,lat,lon,sog_kts,...) or RED (unit_id,timestamp_ms,iso_time,lat,lon,sog_mps,roll_deg,pitch_deg,...).");
+      }
+
+      const pts = [];
+
+      if (fmt === "vakaros"){
+        const iTs = idx("timestamp");
+        const iLat = idx("latitude");
+        const iLon = idx("longitude");
+        const iSog = idx("sog_kts");
+        const iCog = idx("cog");
+        const iHdg = idx("hdg_true");
+        const iHeel = idx("heel");
+        const iTrim = idx("trim");
+
+        if (iTs<0 || iLat<0 || iLon<0 || iSog<0) throw new Error("Vakaros CSV missing required columns.");
+
+        for (let k=1;k<lines.length;k++){
+          const row = splitCSVLine(lines[k]);
+          if (row.length < header.length) continue;
+
+          const d = parseISOish(row[iTs]);
+          if (!d) continue;
+
+          const lat = toNum(row[iLat]);
+          const lon = toNum(row[iLon]);
+          const sogKt = toNum(row[iSog]);
+          // allow lat/lon missing? for Vakaros they're usually present; skip if invalid
+          if (!Number.isFinite(sogKt)) continue;
+
+          pts.push({
+            tAbs: d,
+            te: 0, // fill later
+            lat: Number.isFinite(lat) ? lat : NaN,
+            lon: Number.isFinite(lon) ? lon : NaN,
+            sogKt,
+            cog: (iCog>=0)? toNum(row[iCog]) : NaN,
+            hdg: (iHdg>=0)? toNum(row[iHdg]) : NaN,
+            heel: (iHeel>=0)? toNum(row[iHeel]) : NaN,
+            trim: (iTrim>=0)? toNum(row[iTrim]) : NaN,
+            torso: NaN
+          });
+        }
+
+        if (pts.length < 2) throw new Error("Not enough valid rows parsed from Vakaros CSV.");
+
+        pts.sort((a,b)=>a.tAbs - b.tAbs);
+        const t0 = pts[0].tAbs.getTime();
+        for (const p of pts) p.te = (p.tAbs.getTime() - t0)/1000;
+
+        state.t0Abs = pts[0].tAbs;
+      }
+
+      if (fmt === "red"){
+        const iMs = idx("timestamp_ms");
+        const iIso = idx("iso_time");
+        const iLat = idx("lat");
+        const iLon = idx("lon");
+        const iSog = idx("sog_mps");
+        const iCog = idx("heading_deg");    // might be empty
+        const iHdg = idx("mag_hdg");        // fallback
+        const iRoll = idx("roll_deg");      // heel
+        const iPitch = idx("pitch_deg");    // trim
+        const iTorso = idx("torso_angle");
+
+        if (iMs<0 || iSog<0) throw new Error("RED CSV missing required columns (timestamp_ms, sog_mps).");
+
+        // Find first absolute timestamp (iso_time) if present
+        let firstAbs = null;
+        for (let k=1;k<lines.length;k++){
+          const row = splitCSVLine(lines[k]);
+          const d = (iIso>=0) ? parseISOish(row[iIso]) : null;
+          if (d){ firstAbs = d; break; }
+        }
+
+        let t0ms = null;
+
+        for (let k=1;k<lines.length;k++){
+          const row = splitCSVLine(lines[k]);
+          if (row.length < 5) continue;
+
+          const ms = parseInt(row[iMs], 10);
+          if (!Number.isFinite(ms)) continue;
+          if (t0ms === null) t0ms = ms;
+
+          const tAbs = (iIso>=0) ? parseISOish(row[iIso]) : null;
+
+          const lat = (iLat>=0) ? toNum(row[iLat]) : NaN;
+          const lon = (iLon>=0) ? toNum(row[iLon]) : NaN;
+
+          const sogMps = toNum(row[iSog]);
+          if (!Number.isFinite(sogMps)) continue;
+          const sogKt = sogMps * 1.943844;
+
+          const cog = (iCog>=0) ? toNum(row[iCog]) : NaN;
+          const hdg = (iHdg>=0) ? toNum(row[iHdg]) : NaN;
+
+          const heel = (iRoll>=0) ? toNum(row[iRoll]) : NaN;
+          const trim = (iPitch>=0) ? toNum(row[iPitch]) : NaN;
+
+          const torso = (iTorso>=0) ? toNum(row[iTorso]) : NaN;
+
+          let abs = tAbs;
+          if (!abs && firstAbs && t0ms !== null) {
+            // Reconstruct absolute timestamp using firstAbs + (ms - firstMs)
+            // NOTE: assumes timestamp_ms increments in real-time; good enough for display
+            abs = new Date(firstAbs.getTime() + (ms - t0ms));
+          }
+
+          pts.push({
+            tAbs: abs,           // may be null if no iso_time anywhere
+            te: 0,               // fill after sort
+            lat: Number.isFinite(lat) ? lat : NaN,
+            lon: Number.isFinite(lon) ? lon : NaN,
+            sogKt,
+            cog: Number.isFinite(cog) ? cog : (Number.isFinite(hdg) ? hdg : NaN),
+            hdg: Number.isFinite(hdg) ? hdg : NaN,
+            heel,
+            trim,
+            torso
+          });
+        }
+
+        if (pts.length < 2) throw new Error("Not enough valid rows parsed from RED CSV.");
+
+        // Determine te from available absolute times else relative index
+        if (pts.some(p => p.tAbs instanceof Date && !isNaN(p.tAbs.getTime()))) {
+          pts.sort((a,b)=>a.tAbs - b.tAbs);
+          const t0 = pts.find(p => p.tAbs)?.tAbs?.getTime();
+          if (t0 != null){
+            for (const p of pts) {
+              const t = p.tAbs?.getTime?.();
+              p.te = Number.isFinite(t) ? (t - t0)/1000 : 0;
+            }
+            state.t0Abs = pts.find(p => p.tAbs)?.tAbs ?? null;
+          } else {
+            // fallback
+            pts.sort((a,b)=>a.te - b.te);
+            for (let i=0;i<pts.length;i++) pts[i].te = i;
+            state.t0Abs = null;
+          }
+        } else {
+          // no absolute timestamp anywhere: use monotonically increasing index-based te
+          for (let i=0;i<pts.length;i++) pts[i].te = i;
+          state.t0Abs = null;
+        }
+      }
+
+      // finalize state
+      state.points = pts.filter(p => Number.isFinite(p.te));
+      state.duration = state.points[state.points.length - 1].te;
+
+      // Start just before 0, so scrubbing "from the first point" feels easy
+      state.centerTe = -Math.min(state.padStartSec, 2.0);
+      state.spanSec = Math.min(60, Math.max(6, state.duration + state.padStartSec));
+
+      // Build map track using only points with lat/lon
+      const latlngs = state.points
+        .filter(p => Number.isFinite(p.lat) && Number.isFinite(p.lon))
+        .map(p => [p.lat, p.lon]);
+
+      if (state.poly) state.poly.remove();
+      if (state.marker) state.marker.remove();
+
+      if (latlngs.length >= 2) {
+        state.poly = L.polyline(latlngs, { weight: 4, opacity: 0.75 }).addTo(map);
+
+        // red marker
+        state.marker = L.circleMarker(latlngs[0], {
+          radius: 9,
+          weight: 3,
+          color: "#ff3b30",
+          fillColor: "#ff3b30",
+          fillOpacity: 0.90
+        }).addTo(map);
+        state.marker.bringToFront();
+
+        fitTrack();
+      } else {
+        // still allow chart scrubbing even if lat/lon are missing
+        state.poly = null;
+        state.marker = null;
+        map.setView([0,0], 2);
+      }
+
+      // Build chart + initial UI update
+      makeChart();
+      updateAtCenter(true);
+
+      // Re-evaluate video placement notice (if video already loaded)
+      updateVideoPlacementNotice();
+
+      // Clear any old parse error notices
+      if (state.points.length) {
+        // keep notice if video-related
+        // (so don't clear unconditionally)
+      }
+    }
+
+    // =========================
+    // Sync logic
+    // =========================
+    function getOffsetSec(){
+      const v = parseFloat(offsetEl.value);
+      return Number.isFinite(v) ? v : 0;
+    }
+
+    function videoSeg(){
+      if (!state.vLoaded) return null;
+      const a = getOffsetSec();
+      const b = a + state.vDuration;
+      return {a,b};
+    }
+
+    function centerIsInVideo(){
+      const seg = videoSeg();
+      if (!seg) return false;
+      return state.centerTe >= seg.a && state.centerTe <= seg.b;
+    }
+
+    function updateVideoPlacementNotice(){
+      if (!state.vLoaded || !state.points.length){
+        // only show notice if needed
+        showNotice("");
+        return;
+      }
+      const seg = videoSeg();
+      const minTe = -state.padStartSec;
+      const maxTe = state.duration;
+
+      if (seg.b < minTe || seg.a > maxTe){
+        showNotice("Video timing is completely outside the CSV time range (adjust offset).");
+        return;
+      }
+      if (seg.a < minTe || seg.b > maxTe){
+        showNotice("Video overlaps CSV, but part of the video lies outside the CSV time range.");
+        return;
+      }
+      showNotice("");
+    }
+
+    function followCenterToVideo(forceSeek){
+      if (!state.vLoaded) {
+        vRead.textContent = "—";
+        inVidRead.textContent = "no video";
+        return;
+      }
+
+      const inside = centerIsInVideo();
+      inVidRead.textContent = inside ? "IN VIDEO" : "outside video";
+
+      if (inside && forceSeek) {
+        const vt = state.centerTe - getOffsetSec();
+        videoEl.currentTime = clamp(vt, 0, videoEl.duration);
+      }
+
+      vRead.textContent = fmtClock(videoEl.currentTime);
+    }
+
+    function findIndexForTime(te){
+      const pts = state.points;
+      if (!pts.length) return 0;
+
+      // clamp to data time range for lookup (padding uses first sample)
+      const t = clamp(te, 0, state.duration);
+
+      if (t <= pts[0].te) return 0;
+      if (t >= pts[pts.length-1].te) return pts.length-1;
+
+      let i = clamp(state.lastIdx, 0, pts.length-2);
+
+      while (i < pts.length-2 && pts[i+1].te < t) i++;
+      while (i > 0 && pts[i].te > t) i--;
+
+      if (!(pts[i].te <= t && t <= pts[i+1].te)) {
+        let lo=0, hi=pts.length-1;
+        while (lo+1<hi){
+          const mid=(lo+hi)>>1;
+          if (pts[mid].te <= t) lo=mid; else hi=mid;
+        }
+        i=lo;
+      }
+      state.lastIdx=i;
+
+      const a=pts[i], b=pts[i+1];
+      return (Math.abs(a.te - t) <= Math.abs(b.te - t)) ? i : (i+1);
+    }
+
+    function setReadouts(p){
+      if (!p) return;
+
+      if (p.tAbs instanceof Date && !isNaN(p.tAbs.getTime())) {
+        tRead.textContent = p.tAbs.toISOString().replace(".000Z","Z");
+      } else {
+        // fallback when no absolute time exists
+        tRead.textContent = `${p.te.toFixed(2)}s`;
+      }
+
+      sogRead.textContent = Number.isFinite(p.sogKt) ? p.sogKt.toFixed(2) : "—";
+      cogRead.textContent = Number.isFinite(p.cog) ? p.cog.toFixed(1) : "—";
+      hdgRead.textContent = Number.isFinite(p.hdg) ? p.hdg.toFixed(1) : "—";
+      heelRead.textContent = Number.isFinite(p.heel) ? p.heel.toFixed(2) : "—";
+      trimRead.textContent = Number.isFinite(p.trim) ? p.trim.toFixed(2) : "—";
+      torsoRead.textContent = Number.isFinite(p.torso) ? p.torso.toFixed(2) : "—";
+    }
+
+    function updateAtCenter(seekVideo){
+      if (!state.points.length) return;
+
+      const idx = findIndexForTime(state.centerTe);
+      const p = state.points[idx];
+      setReadouts(p);
+
+      // marker update: choose nearest point with valid lat/lon at/around idx
+      if (state.marker) {
+        let j = idx;
+        if (!(Number.isFinite(p.lat) && Number.isFinite(p.lon))) {
+          // search nearby
+          let found = -1;
+          for (let r=1;r<30;r++){
+            const a = idx-r, b = idx+r;
+            if (a>=0 && Number.isFinite(state.points[a].lat) && Number.isFinite(state.points[a].lon)) { found=a; break; }
+            if (b<state.points.length && Number.isFinite(state.points[b].lat) && Number.isFinite(state.points[b].lon)) { found=b; break; }
+          }
+          if (found >= 0) j = found;
+        }
+        const q = state.points[j];
+        if (Number.isFinite(q.lat) && Number.isFinite(q.lon)) {
+          state.marker.setLatLng([q.lat, q.lon]);
+          state.marker.bringToFront();
+        }
+      }
+
+      followCenterToVideo(seekVideo);
+      drawVideoTimeline();
+      updateVideoPlacementNotice();
+    }
+
+    // =========================
+    // Timeline canvas (video segment + playhead)
+    // =========================
+    function resizeTimelineCanvas(){
+      const dpr = window.devicePixelRatio || 1;
+      const rect = videoTimeline.getBoundingClientRect();
+      const w = Math.max(10, Math.floor(rect.width));
+      const h = Math.max(10, Math.floor(rect.height));
+      videoTimeline.width = Math.floor(w * dpr);
+      videoTimeline.height = Math.floor(h * dpr);
+      vtCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      return { w, h };
+    }
+
+    function roundRect(ctx, x, y, w, h, r, fill, stroke) {
+      const radius = Math.min(r, w/2, h/2);
+      ctx.beginPath();
+      ctx.moveTo(x + radius, y);
+      ctx.arcTo(x + w, y, x + w, y + h, radius);
+      ctx.arcTo(x + w, y + h, x, y + h, radius);
+      ctx.arcTo(x, y + h, x, y, radius);
+      ctx.arcTo(x, y, x + w, y, radius);
+      ctx.closePath();
+      if (fill) ctx.fill();
+      if (stroke) ctx.stroke();
+    }
+
+    function drawVideoTimeline(){
+      const { w, h } = resizeTimelineCanvas();
+      const ctx = vtCtx;
+      ctx.clearRect(0,0,w,h);
+
+      if (!state.points.length) {
+        ctx.fillStyle = "rgba(255,255,255,0.65)";
+        ctx.font = "12px ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial";
+        ctx.fillText("Load CSV to enable timeline.", 10, 22);
+        return;
+      }
+
+      const minTe = -state.padStartSec;
+      const maxTe = state.duration;
+
+      const span = state.spanSec;
+      const half = span/2;
+
+      let wMin = state.centerTe - half;
+      let wMax = state.centerTe + half;
+
+      if (wMin < minTe) { wMax -= (wMin - minTe); wMin = minTe; }
+      if (wMax > maxTe) { wMin -= (wMax - maxTe); wMax = maxTe; }
+      if ((maxTe - minTe) < span) { wMin = minTe; wMax = maxTe; }
+
+      const pad = 10;
+      const barY = 36;
+      const barH = 18;
+      const barX = pad;
+      const barW = w - 2*pad;
+
+      const xForTe = (te) => {
+        if (wMax <= wMin) return barX;
+        const u = (te - wMin) / (wMax - wMin);
+        return barX + u * barW;
+      };
+
+      // base bar
+      ctx.save();
+      ctx.strokeStyle = "rgba(255,255,255,0.14)";
+      ctx.fillStyle = "rgba(255,255,255,0.05)";
+      roundRect(ctx, barX, barY, barW, barH, 10, true, true);
+
+      // shaded padding zone (negative time)
+      if (wMin < 0) {
+        const ax = xForTe(wMin);
+        const bx = xForTe(Math.min(0, wMax));
+        ctx.fillStyle = "rgba(255,255,255,0.03)";
+        roundRect(ctx, ax, barY, Math.max(0, bx-ax), barH, 10, true, false);
+      }
+
+      // video segment
+      if (state.vLoaded) {
+        const seg = videoSeg();
+        const clipA = clamp(seg.a, wMin, wMax);
+        const clipB = clamp(seg.b, wMin, wMax);
+
+        if (clipB > clipA) {
+          const ax = xForTe(clipA);
+          const bx = xForTe(clipB);
+          ctx.fillStyle = "rgba(103, 232, 249, 0.18)";
+          ctx.strokeStyle = "rgba(103, 232, 249, 0.55)";
+          roundRect(ctx, ax, barY, (bx-ax), barH, 10, true, true);
+        }
+
+        // current video playhead dot
+        const playTe = (videoEl.currentTime || 0) + getOffsetSec();
+        if (playTe >= wMin && playTe <= wMax) {
+          const px = xForTe(playTe);
+          ctx.fillStyle = "rgba(103, 232, 249, 0.95)";
+          ctx.beginPath();
+          ctx.arc(px, barY + barH/2, 4.5, 0, Math.PI*2);
+          ctx.fill();
+        }
+      }
+
+      // red center scrub line
+      const cx = barX + barW/2;
+      ctx.strokeStyle = "#ff3b30";
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(cx, barY - 10);
+      ctx.lineTo(cx, barY + barH + 14);
+      ctx.stroke();
+
+      // labels
+      ctx.fillStyle = "rgba(255,255,255,0.65)";
+      ctx.font = "12px ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial";
+      ctx.textBaseline = "middle";
+      ctx.fillText(`${wMin.toFixed(1)}s`, barX, 18);
+      const rightLabel = `${wMax.toFixed(1)}s`;
+      const rW = ctx.measureText(rightLabel).width;
+      ctx.fillText(rightLabel, barX + barW - rW, 18);
+
+      const inside = centerIsInVideo();
+      const centerInfo =
+        `center=${state.centerTe.toFixed(2)}s` +
+        (state.vLoaded ? ` | vt=${fmtClock(state.centerTe - getOffsetSec())}` : "") +
+        (state.vLoaded ? (inside ? " | IN VIDEO" : " | outside") : "");
+      ctx.fillStyle = "rgba(255,255,255,0.75)";
+      ctx.fillText(centerInfo, barX, barY + barH + 22);
+
+      ctx.restore();
+    }
+
+    // =========================
+    // Pan / zoom
+    // =========================
+    function secondsPerPixel(){
+      const rect = chartCanvas.getBoundingClientRect();
+      const w = Math.max(1, rect.width);
+      return state.spanSec / w;
+    }
+
+    function beginDrag(clientX){
+      state.dragging = true;
+      state.dragStartX = clientX;
+      state.dragStartCenter = state.centerTe;
+    }
+
+    function moveDrag(clientX){
+      if (!state.dragging || !state.points.length) return;
+      const dx = clientX - state.dragStartX;
+      const dSec = dx * secondsPerPixel();
+
+      // grab & drag: move right -> time goes backward
+      state.centerTe = state.dragStartCenter - dSec;
+
+      applyWindow(false);
+      updateAtCenter(true); // video follows while dragging (only if inside segment)
+    }
+
+    function endDrag(){ state.dragging = false; }
+
+    function attachPanHandlers(el){
+      el.addEventListener("pointerdown", (e) => {
+        if (!state.points.length) return;
+        el.setPointerCapture(e.pointerId);
+        beginDrag(e.clientX);
+      });
+      el.addEventListener("pointermove", (e) => moveDrag(e.clientX));
+      el.addEventListener("pointerup", endDrag);
+      el.addEventListener("pointercancel", endDrag);
+    }
+
+    attachPanHandlers(chartCanvas);
+    attachPanHandlers(videoTimeline);
+
+    zoomInBtn.addEventListener("click", () => {
+      if (!state.points.length) return;
+      state.spanSec = clamp(state.spanSec * 0.6, 2, Math.max(2, state.duration + state.padStartSec));
+      applyWindow(true);
+      updateAtCenter(true);
+    });
+    zoomOutBtn.addEventListener("click", () => {
+      if (!state.points.length) return;
+      state.spanSec = clamp(state.spanSec / 0.6, 2, Math.max(2, state.duration + state.padStartSec));
+      applyWindow(true);
+      updateAtCenter(true);
+    });
+    centerStartBtn.addEventListener("click", () => {
+      if (!state.points.length) return;
+      state.centerTe = -Math.min(state.padStartSec, 2.0);
+      applyWindow(true);
+      updateAtCenter(true);
+    });
+
+    // =========================
+    // Playback controls (CSV-driven; keeps going after video ends)
+    // =========================
+    function setPlaying(on){
+      state.playing = on;
+      state.playLastTs = performance.now();
+      playPauseBtn.textContent = on ? "Pause" : "Play";
+
+      // If video exists and we are inside segment, keep it playing; otherwise let it be paused.
+      if (state.vLoaded) {
+        if (on && centerIsInVideo()) videoEl.play().catch(()=>{});
+        if (!on) videoEl.pause();
+      }
+    }
+
+    function stepCenter(dt){
+      if (!state.points.length) return;
+      const minTe = -state.padStartSec;
+      const maxTe = state.duration;
+
+      state.centerTe = clamp(state.centerTe + dt, minTe, maxTe);
+      applyWindow(true);
+      updateAtCenter(true);
+
+      // If we stepped into the video segment and are "playing", sync video
+      if (state.vLoaded && state.playing && centerIsInVideo()) {
+        const vt = state.centerTe - getOffsetSec();
+        videoEl.currentTime = clamp(vt, 0, videoEl.duration);
+        videoEl.play().catch(()=>{});
+      }
+    }
+
+    playPauseBtn.addEventListener("click", () => {
+      if (!state.points.length) return;
+      setPlaying(!state.playing);
+    });
+    back10Btn.addEventListener("click", () => stepCenter(-10));
+    fwd10Btn.addEventListener("click", () => stepCenter(+10));
+
+    // =========================
+    // Video loading
+    // =========================
+    function loadVideo(file){
+      const url = URL.createObjectURL(file);
+      videoEl.src = url;
+      videoEl.load();
+    }
+
+    videoEl.addEventListener("loadedmetadata", () => {
+      state.vLoaded = Number.isFinite(videoEl.duration) && videoEl.duration > 0;
+      state.vDuration = state.vLoaded ? videoEl.duration : NaN;
+
+      drawVideoTimeline();
+      updateVideoPlacementNotice();
+
+      // If already have CSV and we're inside the segment, align video to center
+      if (state.points.length && state.vLoaded && centerIsInVideo()) {
+        const vt = state.centerTe - getOffsetSec();
+        videoEl.currentTime = clamp(vt, 0, videoEl.duration);
+      }
+    });
+
+    // When the real video ends, CSV playback continues — nothing special required.
+    videoEl.addEventListener("ended", () => {
+      // If user later scrubs back into the segment, we will seek and can play again.
+    });
+
+    // =========================
+    // File inputs / buttons
+    // =========================
+    videoFileEl.addEventListener("change", (e) => {
+      const f = e.target.files?.[0];
+      if (f) loadVideo(f);
+    });
+
+    csvFileEl.addEventListener("change", async (e) => {
+      const f = e.target.files?.[0];
+      if (!f) return;
+      try {
+        await loadCSV(f);
+      } catch (err) {
+        showNotice(err?.message || String(err));
+        console.error(err);
+      }
+    });
+
+    btnFit.addEventListener("click", fitTrack);
+
+    offsetEl.addEventListener("input", () => {
+      drawVideoTimeline();
+      updateVideoPlacementNotice();
+
+      // keep center fixed; only seek if inside
+      if (state.points.length && state.vLoaded && centerIsInVideo()) {
+        const vt = state.centerTe - getOffsetSec();
+        videoEl.currentTime = clamp(vt, 0, videoEl.duration);
+      }
+      updateAtCenter(false);
+    });
+
+    btnSetOffset.addEventListener("click", () => {
+      if (!state.vLoaded) return;
+      // Offset = centerTe - current video time
+      const vt = videoEl.currentTime || 0;
+      const off = state.centerTe - vt;
+      offsetEl.value = off.toFixed(2);
+
+      drawVideoTimeline();
+      updateVideoPlacementNotice();
+
+      if (state.points.length && centerIsInVideo()) {
+        const vt2 = state.centerTe - getOffsetSec();
+        videoEl.currentTime = clamp(vt2, 0, videoEl.duration);
+      }
+      updateAtCenter(false);
+    });
+
+    window.addEventListener("resize", () => {
+      applyWindow(true);
+      drawVideoTimeline();
+    });
+
+    // =========================
+    // Main loop
+    // =========================
+    function loop(){
+      const now = performance.now();
+
+      if (state.playing && state.points.length) {
+        const dt = (now - state.playLastTs) / 1000;
+        state.playLastTs = now;
+
+        // advance center across full CSV (including after video ends)
+        state.centerTe += dt;
+        state.centerTe = clamp(state.centerTe, -state.padStartSec, state.duration);
+
+        applyWindow(false);
+        updateAtCenter(false);
+
+        // If inside video, keep video synced and playing
+        if (state.vLoaded) {
+          if (centerIsInVideo()) {
+            const vt = state.centerTe - getOffsetSec();
+            // Resync if drifted or ended
+            if (videoEl.ended || Math.abs(videoEl.currentTime - vt) > 0.30) {
+              videoEl.currentTime = clamp(vt, 0, videoEl.duration);
+            }
+            if (videoEl.paused) videoEl.play().catch(()=>{});
+          }
+          vRead.textContent = fmtClock(videoEl.currentTime);
+          inVidRead.textContent = centerIsInVideo() ? "IN VIDEO" : "outside video";
+        }
+      } else {
+        // idle UI updates
+        if (state.vLoaded) {
+          vRead.textContent = fmtClock(videoEl.currentTime);
+          inVidRead.textContent = centerIsInVideo() ? "IN VIDEO" : "outside video";
+        } else {
+          vRead.textContent = "—";
+          inVidRead.textContent = "no video";
+        }
+      }
+
+      state.raf = requestAnimationFrame(loop);
+    }
+
+    state.playLastTs = performance.now();
+    state.raf = requestAnimationFrame(loop);
+  </script>
+</body>
+</html>
