@@ -24,34 +24,48 @@
   <style>
     :root{
       --bg:#0b0f14; --panel:#111823; --panel2:#0e151f;
-      --text:#e6edf3; --muted:#9fb0c0; --accent:#67e8f9;
+      --text:#e6edf3; --muted:#9fb0c0;
       --border:rgba(255,255,255,.10); --shadow:rgba(0,0,0,.35);
-      --radius:14px; --gap:12px; --chartH:340px;
-      --scrub:#ff3b30; /* red */
+      --radius:14px; --gap:12px;
+      --scrub:#ff3b30;
     }
     *{box-sizing:border-box}
     html,body{height:100%;margin:0;background:var(--bg);color:var(--text);
       font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Arial}
-    .wrap{height:100dvh;padding:12px;display:grid;grid-template-rows:auto 1fr var(--chartH);gap:var(--gap)}
+    .wrap{
+      min-height:100dvh;
+      padding:12px;
+      display:grid;
+      grid-template-rows:auto 1fr auto;
+      gap:var(--gap);
+    }
+
+    /* Header */
     .header{
-      display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:space-between;
+      display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end;justify-content:space-between;
       background:linear-gradient(180deg,var(--panel),var(--panel2));
       border:1px solid var(--border);border-radius:var(--radius);
       padding:10px;box-shadow:0 10px 30px var(--shadow)
     }
-    .headerLeft{display:flex;flex-wrap:wrap;gap:10px;align-items:center}
-    .header .block{display:flex;flex-direction:column;gap:4px;min-width:180px}
-    .header label{font-size:12px;color:var(--muted)}
-    .header input[type="file"], .header input[type="number"], .header button{
-      background:rgba(255,255,255,.05);border:1px solid var(--border);
-      color:var(--text);border-radius:10px;padding:8px 10px;font-size:14px
+    .headerLeft{display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end}
+    .headerRight{display:flex;gap:10px;align-items:flex-end}
+    .block{display:flex;flex-direction:column;gap:4px;min-width:160px}
+    label{font-size:12px;color:var(--muted)}
+    input[type="file"], input[type="number"], button{
+      background:rgba(255,255,255,.05);
+      border:1px solid var(--border);
+      color:var(--text);
+      border-radius:10px;
+      padding:8px 10px;
+      font-size:14px
     }
-    .header button{cursor:pointer;user-select:none;transition:transform .04s ease}
-    .header button:active{transform:scale(.99)}
-    .header .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+    button{cursor:pointer;user-select:none;white-space:nowrap}
+    button:active{transform:scale(.99)}
+    .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
 
     .notice{
-      max-width:min(520px, 100%);
+      flex:1 1 280px;
+      max-width:720px;
       font-size:12px;
       color:rgba(255,255,255,0.85);
       background:rgba(255,59,48,0.12);
@@ -59,75 +73,129 @@
       padding:8px 10px;
       border-radius:12px;
       display:none;
+      margin-top:8px;
     }
 
-    .content{display:grid;grid-template-columns:1fr 1fr;gap:var(--gap);min-height:260px}
+    /* Content layout (default = LARGE) */
+    .content{
+      display:grid;
+      grid-template-columns:1fr 1fr;
+      gap:var(--gap);
+      align-items:stretch;
+    }
+
     .card{
       background:linear-gradient(180deg,var(--panel),var(--panel2));
-      border:1px solid var(--border);border-radius:var(--radius);
-      overflow:hidden;box-shadow:0 10px 30px var(--shadow);position:relative;min-height:240px
+      border:1px solid var(--border);
+      border-radius:var(--radius);
+      overflow:hidden;
+      box-shadow:0 10px 30px var(--shadow);
+      position:relative;
+      display:flex;
+      flex-direction:column;
     }
     .cardTitle{
-      position:absolute;top:10px;left:10px;z-index:10;font-size:12px;color:var(--muted);
-      background:rgba(0,0,0,.35);border:1px solid rgba(255,255,255,.10);
-      padding:6px 10px;border-radius:999px;backdrop-filter:blur(6px)
+      position:absolute;top:10px;left:10px;z-index:10;
+      font-size:12px;color:var(--muted);
+      background:rgba(0,0,0,.35);
+      border:1px solid rgba(255,255,255,.10);
+      padding:6px 10px;border-radius:999px;
+      backdrop-filter:blur(6px)
     }
-    video{width:100%;height:100%;object-fit:contain;background:#000}
+
+    /* Always-landscape tiles */
+    .tile{
+      width:100%;
+      aspect-ratio: 16 / 9;
+      background:#000;
+      position:relative;
+      overflow:hidden;
+      flex: 1 1 auto;
+    }
+    video{
+      width:100%;
+      height:100%;
+      object-fit:contain; /* keep portrait video intact inside landscape tile */
+      background:#000;
+    }
     #map{width:100%;height:100%}
 
+    /* Chart */
     .chartCard{
       background:linear-gradient(180deg,var(--panel),var(--panel2));
-      border:1px solid var(--border);border-radius:var(--radius);
-      overflow:hidden;box-shadow:0 10px 30px var(--shadow);
-      padding:8px 10px 10px 10px;position:relative
+      border:1px solid var(--border);
+      border-radius:var(--radius);
+      overflow:hidden;
+      box-shadow:0 10px 30px var(--shadow);
+      padding:10px;
+    }
+    .topBar{
+      display:flex;gap:10px;align-items:center;justify-content:space-between;flex-wrap:wrap;
+      margin-bottom:8px;
     }
     .pill{
-      font-size:12px;color:var(--muted);background:rgba(0,0,0,.35);
-      border:1px solid rgba(255,255,255,.10);padding:6px 10px;border-radius:999px
+      font-size:12px;color:var(--muted);
+      background:rgba(0,0,0,.35);
+      border:1px solid rgba(255,255,255,.10);
+      padding:6px 10px;border-radius:999px;
     }
-    .status{font-size:12px;color:var(--muted);display:flex;gap:12px;flex-wrap:wrap;align-items:center;margin-top:6px}
+    .controlsRow{
+      display:grid;
+      grid-template-columns:1fr auto 1fr;
+      align-items:center;
+      gap:10px;
+      margin:6px 0 8px 0;
+    }
+    .controlsRow .left, .controlsRow .right{
+      display:flex;gap:8px;flex-wrap:wrap;align-items:center;
+    }
+    .controlsRow .center{
+      display:flex;gap:8px;flex-wrap:nowrap;align-items:center;justify-content:center;
+      min-width:0;
+    }
+    .status{
+      font-size:12px;color:var(--muted);
+      display:flex;gap:10px;flex-wrap:wrap;align-items:center;
+      margin-bottom:8px;
+    }
     .status b{color:var(--text);font-weight:600}
 
-    .toolbarRow{
-      display:flex;gap:10px;align-items:center;justify-content:space-between;flex-wrap:wrap;
-      margin:8px 0 6px 0;
-    }
-    .zoomGroup,.playGroup{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
-    .toolbarRow button{
-      background:rgba(255,255,255,.05);border:1px solid var(--border);
-      color:var(--text);border-radius:10px;padding:6px 10px;font-size:14px;cursor:pointer;
-      user-select:none;
-    }
-    .toolbarRow button:active{transform:scale(.99)}
-    .playGroup{margin:0 auto} /* keeps it centered when room allows */
+    #chartWrap{position:relative;height:220px;touch-action:none}
+    #chart{width:100%;height:220px}
 
-    #chartWrap{position:relative;height:170px;touch-action:none}
-    #chart{width:100%;height:170px}
-
-    #videoTimelineWrap{margin-top:8px;touch-action:none}
+    #videoTimelineWrap{margin-top:10px;touch-action:none}
     #videoTimeline{
       width:100%;
-      height:92px;
+      height:110px;
       border-radius:12px;
       border:1px solid rgba(255,255,255,.10);
       background:rgba(0,0,0,.25);
       touch-action:none;
     }
+    .small{font-size:12px;color:var(--muted);line-height:1.3;margin-top:8px}
 
-    .small{font-size:12px;color:var(--muted);line-height:1.3;margin-top:6px}
+    /* SMALL MODE: force stacking even on big screens */
+    body.mode-small .content{grid-template-columns:1fr}
+    body.mode-small .controlsRow{grid-template-columns:1fr;gap:8px}
+    body.mode-small .controlsRow .left,
+    body.mode-small .controlsRow .center,
+    body.mode-small .controlsRow .right{justify-content:center}
 
-    @media (max-width: 900px){
-      .content{grid-template-columns:1fr}
-      :root{--chartH:410px}
-      #chartWrap{height:200px}
-      #chart{height:200px}
-      #videoTimeline{height:108px}
-      .playGroup{margin:0} /* on narrow screens just flow normally */
+    /* Auto small on narrow screens, unless user forces large */
+    @media (max-width: 860px){
+      body:not(.mode-large-forced) .content{grid-template-columns:1fr}
+    }
+    @media (max-width: 420px){
+      body:not(.mode-large-forced) .controlsRow{grid-template-columns:1fr;gap:8px}
+      body:not(.mode-large-forced) .controlsRow .left,
+      body:not(.mode-large-forced) .controlsRow .center,
+      body:not(.mode-large-forced) .controlsRow .right{justify-content:center}
+      .block{min-width:140px}
     }
   </style>
 </head>
 
-<body>
+<body class="mode-large">
   <div class="wrap">
     <div class="header">
       <div class="headerLeft">
@@ -137,60 +205,71 @@
         </div>
 
         <div class="block">
-          <label>CSV (Vakaros or RED format)</label>
+          <label>CSV (Vakaros or RED)</label>
           <input id="csvFile" type="file" accept=".csv,text/csv" />
         </div>
 
-        <div class="block" style="min-width:380px;">
+        <div class="block" style="min-width:min(560px, 100%);">
           <label>Sync offset (seconds) — GPS elapsed = videoTime + offset</label>
           <div class="row">
             <input id="offsetSec" type="number" step="0.1" value="0" style="width:110px;" />
+            <button id="btnAutoAlign" title="Auto-align using CSV timestamps + video file time (best effort)">Auto-align</button>
             <button id="btnSetOffset" title="Offset = centerTime - currentVideoTime">Set offset from center</button>
             <button id="btnFit" title="Fit map to track">Fit track</button>
           </div>
         </div>
-
-        <div class="block" style="min-width:240px;">
-          <label>Version</label>
-          <div class="small" style="margin:0;">v0.5 — dual CSV formats + torso angle + video/outside notice</div>
-        </div>
       </div>
 
-      <div id="notice" class="notice"></div>
+      <div class="headerRight">
+        <div class="block" style="min-width:220px;">
+          <label>Version</label>
+          <div class="small" style="margin:0;">v0.8 — toggle layout mode + always-landscape tiles</div>
+        </div>
+        <div class="block" style="min-width:170px;">
+          <label>Layout</label>
+          <button id="btnToggleMode" title="Toggle between large (side-by-side) and small (stacked) layouts">Small mode</button>
+        </div>
+      </div>
     </div>
+
+    <div id="notice" class="notice"></div>
 
     <div class="content">
       <div class="card">
         <div class="cardTitle">Video</div>
-        <video id="video" controls playsinline></video>
+        <div class="tile">
+          <video id="video" controls playsinline></video>
+        </div>
       </div>
 
       <div class="card">
         <div class="cardTitle">GPS track</div>
-        <div id="map"></div>
+        <div class="tile">
+          <div id="map"></div>
+        </div>
       </div>
     </div>
 
     <div class="chartCard">
-      <div style="display:flex;gap:10px;align-items:center;justify-content:space-between;flex-wrap:wrap;">
-        <div class="pill">SOG (knots) — drag to pan; red center scrub; marker follows</div>
-        <div class="pill">Video timeline below — segment shown when video overlaps</div>
+      <div class="topBar">
+        <div class="pill">SOG — drag to pan; red center scrub; marker follows</div>
+        <div class="pill">Video segment placed by offset (auto-align available)</div>
       </div>
 
-      <div class="toolbarRow">
-        <div class="zoomGroup">
+      <div class="controlsRow">
+        <div class="left">
           <button id="zoomIn" title="Zoom in">+</button>
           <button id="zoomOut" title="Zoom out">−</button>
-          <button id="centerStart" title="Center near start">Center start</button>
+          <button id="centerZero" title="Put center exactly at t=0">Center t=0</button>
         </div>
 
-        <div class="playGroup">
+        <div class="center">
           <button id="back10" title="Back 10 seconds">−10s</button>
           <button id="playPause" title="Play / Pause">Play</button>
           <button id="fwd10" title="Forward 10 seconds">+10s</button>
         </div>
 
-        <div style="min-width:1px;"></div>
+        <div class="right"></div>
       </div>
 
       <div class="status">
@@ -214,8 +293,7 @@
       </div>
 
       <div class="small">
-        Scrub works with CSV only. If a video exists, it only seeks/plays while the red center line is inside the video segment.
-        If the video lies partly/entirely outside the CSV time, you’ll see a notice in the header.
+        Chart includes a padded “null” segment before t=0 so you can scrub the red center line to the very first data point.
       </div>
     </div>
   </div>
@@ -225,10 +303,11 @@
     // Helpers
     // =========================
     function clamp(v,a,b){ return Math.max(a, Math.min(b, v)); }
+    function toNum(x){ const v = parseFloat(x); return Number.isFinite(v) ? v : NaN; }
+    function splitCSVLine(line){ return line.split(",").map(s => s.trim()); }
 
     function parseISOish(ts) {
       if (!ts) return null;
-      // Accept: 2026-02-13T14:08:18.052+0000 OR ...Z
       const fixed = ts.replace(/([+-]\d{2})(\d{2})$/, "$1:$2");
       const d = new Date(fixed);
       return isNaN(d.getTime()) ? null : d;
@@ -247,38 +326,23 @@
 
     function showNotice(msg){
       const el = document.getElementById("notice");
-      if (!msg){
-        el.style.display = "none";
-        el.textContent = "";
-        return;
-      }
+      if (!msg){ el.style.display="none"; el.textContent=""; return; }
       el.textContent = msg;
       el.style.display = "block";
-    }
-
-    function toNum(x){
-      const v = parseFloat(x);
-      return Number.isFinite(v) ? v : NaN;
-    }
-
-    function splitCSVLine(line){
-      // Your samples are simple CSV without quoted commas -> fast split
-      // (If you later get quoted fields, replace this with a proper CSV parser.)
-      return line.split(",").map(s => s.trim());
     }
 
     // =========================
     // State
     // =========================
     const state = {
-      // unified internal points:
-      // { te, tAbs: Date|null, lat, lon, sogKt, cog, hdg, heel, trim, torso }
       points: [],
       t0Abs: null,
       duration: 0,
-      padStartSec: 3.0,
 
-      centerTe: -2.0,
+      padStartSec: 3.0,
+      padNullSteps: 20,
+
+      centerTe: 0,
       spanSec: 60,
 
       chart: null,
@@ -292,27 +356,33 @@
 
       vLoaded: false,
       vDuration: NaN,
+      videoFileLastModifiedMs: null,
+      autoOffsetApplied: false,
 
       playing: false,
       playLastTs: 0,
-      raf: null,
 
-      lastIdx: 0
+      lastIdx: 0,
+      raf: null
     };
 
     // =========================
     // DOM
     // =========================
+    const bodyEl = document.body;
+    const btnToggleMode = document.getElementById("btnToggleMode");
+
     const videoEl = document.getElementById("video");
     const videoFileEl = document.getElementById("videoFile");
     const csvFileEl = document.getElementById("csvFile");
     const offsetEl = document.getElementById("offsetSec");
+    const btnAutoAlign = document.getElementById("btnAutoAlign");
     const btnSetOffset = document.getElementById("btnSetOffset");
     const btnFit = document.getElementById("btnFit");
 
     const zoomInBtn = document.getElementById("zoomIn");
     const zoomOutBtn = document.getElementById("zoomOut");
-    const centerStartBtn = document.getElementById("centerStart");
+    const centerZeroBtn = document.getElementById("centerZero");
 
     const back10Btn = document.getElementById("back10");
     const playPauseBtn = document.getElementById("playPause");
@@ -333,6 +403,36 @@
     const vtCtx = videoTimeline.getContext("2d");
 
     // =========================
+    // Layout toggle
+    // =========================
+    function setModeSmall(on){
+      if (on){
+        bodyEl.classList.add("mode-small");
+        bodyEl.classList.remove("mode-large-forced");
+        btnToggleMode.textContent = "Large mode";
+        // allow Leaflet to resize properly after layout change
+        setTimeout(()=>{ try{ map.invalidateSize(); }catch(e){} }, 50);
+      } else {
+        bodyEl.classList.remove("mode-small");
+        bodyEl.classList.add("mode-large-forced"); // user explicitly wants large even if narrow
+        btnToggleMode.textContent = "Small mode";
+        setTimeout(()=>{ try{ map.invalidateSize(); }catch(e){} }, 50);
+      }
+      // force timeline redraw for correct canvas sizing
+      setTimeout(()=>{ applyWindow(true); drawVideoTimeline(); }, 60);
+    }
+
+    btnToggleMode.addEventListener("click", () => {
+      const isSmall = bodyEl.classList.contains("mode-small");
+      setModeSmall(!isSmall);
+    });
+
+    // Start in large mode by default (no forced flag; user can toggle)
+    bodyEl.classList.remove("mode-small");
+    bodyEl.classList.remove("mode-large-forced");
+    btnToggleMode.textContent = "Small mode";
+
+    // =========================
     // Map
     // =========================
     const map = L.map("map", { zoomControl: true });
@@ -349,7 +449,7 @@
     }
 
     // =========================
-    // Chart (SOG)
+    // Chart
     // =========================
     const centerLinePlugin = {
       id: "centerLine",
@@ -369,20 +469,39 @@
       }
     };
 
+    function buildChartDataset(){
+      const arr = [];
+      const steps = Math.max(6, state.padNullSteps);
+      const pad = state.padStartSec;
+
+      // null pad before 0
+      for (let i=steps; i>=1; i--){
+        const x = -pad * (i/steps);
+        arr.push({ x, y: null });
+      }
+      // explicit point at x=0 with null ensures tick/grid/scale includes 0 cleanly
+      arr.push({ x: 0, y: null });
+
+      for (const p of state.points){
+        arr.push({ x: p.te, y: p.sogKt });
+      }
+      return arr;
+    }
+
     function makeChart(){
       const ctx = chartCanvas.getContext("2d");
-      const data = state.points.map(p => ({ x: p.te, y: p.sogKt }));
+      const data = buildChartDataset();
 
       if (state.chart) state.chart.destroy();
 
       state.chart = new Chart(ctx, {
         type: "line",
-        data: { datasets: [{ data, borderWidth: 2, pointRadius: 0, tension: 0.15 }] },
+        data: { datasets: [{ data, borderWidth: 2, pointRadius: 0, tension: 0.15, spanGaps: false }] },
         options: {
           responsive: true,
           maintainAspectRatio: false,
           animation: false,
-          events: [], // we handle pointer input
+          events: [],
           plugins: { legend: { display: false } },
           scales: {
             x: {
@@ -414,16 +533,15 @@
 
       const spanMax = Math.max(2, (maxTe - minTe) || 2);
       const span = clamp(state.spanSec, 2, spanMax);
-      const half = span / 2;
+      const half = span/2;
 
-      let wMin = state.centerTe - half;
-      let wMax = state.centerTe + half;
-
-      if (wMin < minTe) { wMax -= (wMin - minTe); wMin = minTe; }
-      if (wMax > maxTe) { wMin -= (wMax - maxTe); wMax = maxTe; }
-
-      wMin = clamp(wMin, minTe, maxTe);
-      wMax = clamp(wMax, minTe, maxTe);
+      // keep center anchored; near edges window shrinks
+      let wMin = clamp(state.centerTe - half, minTe, maxTe);
+      let wMax = clamp(state.centerTe + half, minTe, maxTe);
+      if (wMax - wMin < 0.1) {
+        wMin = clamp(state.centerTe - 0.5, minTe, maxTe);
+        wMax = clamp(state.centerTe + 0.5, minTe, maxTe);
+      }
 
       state.chart.options.scales.x.min = wMin;
       state.chart.options.scales.x.max = wMax;
@@ -433,7 +551,7 @@
     }
 
     // =========================
-    // CSV parsing: Vakaros + RED format
+    // CSV parsing
     // =========================
     function detectFormat(headerLower){
       if (headerLower.includes("sog_kts") && headerLower.includes("timestamp")) return "vakaros";
@@ -449,10 +567,7 @@
       const header = splitCSVLine(lines[0]).map(s => s.toLowerCase());
       const idx = (name) => header.indexOf(name.toLowerCase());
       const fmt = detectFormat(header);
-
-      if (fmt === "unknown"){
-        throw new Error("Unknown CSV format. Expected Vakaros (timestamp,lat,lon,sog_kts,...) or RED (unit_id,timestamp_ms,iso_time,lat,lon,sog_mps,roll_deg,pitch_deg,...).");
-      }
+      if (fmt === "unknown") throw new Error("Unknown CSV format.");
 
       const pts = [];
 
@@ -465,7 +580,6 @@
         const iHdg = idx("hdg_true");
         const iHeel = idx("heel");
         const iTrim = idx("trim");
-
         if (iTs<0 || iLat<0 || iLon<0 || iSog<0) throw new Error("Vakaros CSV missing required columns.");
 
         for (let k=1;k<lines.length;k++){
@@ -478,12 +592,10 @@
           const lat = toNum(row[iLat]);
           const lon = toNum(row[iLon]);
           const sogKt = toNum(row[iSog]);
-          // allow lat/lon missing? for Vakaros they're usually present; skip if invalid
           if (!Number.isFinite(sogKt)) continue;
 
           pts.push({
-            tAbs: d,
-            te: 0, // fill later
+            tAbs: d, te: 0,
             lat: Number.isFinite(lat) ? lat : NaN,
             lon: Number.isFinite(lon) ? lon : NaN,
             sogKt,
@@ -494,13 +606,11 @@
             torso: NaN
           });
         }
-
-        if (pts.length < 2) throw new Error("Not enough valid rows parsed from Vakaros CSV.");
+        if (pts.length < 2) throw new Error("Not enough valid rows parsed.");
 
         pts.sort((a,b)=>a.tAbs - b.tAbs);
         const t0 = pts[0].tAbs.getTime();
         for (const p of pts) p.te = (p.tAbs.getTime() - t0)/1000;
-
         state.t0Abs = pts[0].tAbs;
       }
 
@@ -510,23 +620,22 @@
         const iLat = idx("lat");
         const iLon = idx("lon");
         const iSog = idx("sog_mps");
-        const iCog = idx("heading_deg");    // might be empty
-        const iHdg = idx("mag_hdg");        // fallback
-        const iRoll = idx("roll_deg");      // heel
-        const iPitch = idx("pitch_deg");    // trim
+        const iCog = idx("heading_deg");
+        const iHdg = idx("mag_hdg");
+        const iRoll = idx("roll_deg");
+        const iPitch = idx("pitch_deg");
         const iTorso = idx("torso_angle");
 
         if (iMs<0 || iSog<0) throw new Error("RED CSV missing required columns (timestamp_ms, sog_mps).");
 
-        // Find first absolute timestamp (iso_time) if present
         let firstAbs = null;
+        let firstMs = null;
         for (let k=1;k<lines.length;k++){
           const row = splitCSVLine(lines[k]);
+          const ms = parseInt(row[iMs], 10);
           const d = (iIso>=0) ? parseISOish(row[iIso]) : null;
-          if (d){ firstAbs = d; break; }
+          if (d && Number.isFinite(ms)) { firstAbs = d; firstMs = ms; break; }
         }
-
-        let t0ms = null;
 
         for (let k=1;k<lines.length;k++){
           const row = splitCSVLine(lines[k]);
@@ -534,9 +643,10 @@
 
           const ms = parseInt(row[iMs], 10);
           if (!Number.isFinite(ms)) continue;
-          if (t0ms === null) t0ms = ms;
 
-          const tAbs = (iIso>=0) ? parseISOish(row[iIso]) : null;
+          const tAbsRow = (iIso>=0) ? parseISOish(row[iIso]) : null;
+          let tAbs = tAbsRow;
+          if (!tAbs && firstAbs && firstMs != null) tAbs = new Date(firstAbs.getTime() + (ms - firstMs));
 
           const lat = (iLat>=0) ? toNum(row[iLat]) : NaN;
           const lon = (iLon>=0) ? toNum(row[iLon]) : NaN;
@@ -548,66 +658,50 @@
           const cog = (iCog>=0) ? toNum(row[iCog]) : NaN;
           const hdg = (iHdg>=0) ? toNum(row[iHdg]) : NaN;
 
-          const heel = (iRoll>=0) ? toNum(row[iRoll]) : NaN;
-          const trim = (iPitch>=0) ? toNum(row[iPitch]) : NaN;
-
-          const torso = (iTorso>=0) ? toNum(row[iTorso]) : NaN;
-
-          let abs = tAbs;
-          if (!abs && firstAbs && t0ms !== null) {
-            // Reconstruct absolute timestamp using firstAbs + (ms - firstMs)
-            // NOTE: assumes timestamp_ms increments in real-time; good enough for display
-            abs = new Date(firstAbs.getTime() + (ms - t0ms));
-          }
-
           pts.push({
-            tAbs: abs,           // may be null if no iso_time anywhere
-            te: 0,               // fill after sort
+            tAbs, te: 0,
             lat: Number.isFinite(lat) ? lat : NaN,
             lon: Number.isFinite(lon) ? lon : NaN,
             sogKt,
             cog: Number.isFinite(cog) ? cog : (Number.isFinite(hdg) ? hdg : NaN),
             hdg: Number.isFinite(hdg) ? hdg : NaN,
-            heel,
-            trim,
-            torso
+            heel: (iRoll>=0)? toNum(row[iRoll]) : NaN,
+            trim: (iPitch>=0)? toNum(row[iPitch]) : NaN,
+            torso: (iTorso>=0)? toNum(row[iTorso]) : NaN
           });
         }
+        if (pts.length < 2) throw new Error("Not enough valid rows parsed.");
 
-        if (pts.length < 2) throw new Error("Not enough valid rows parsed from RED CSV.");
-
-        // Determine te from available absolute times else relative index
         if (pts.some(p => p.tAbs instanceof Date && !isNaN(p.tAbs.getTime()))) {
           pts.sort((a,b)=>a.tAbs - b.tAbs);
           const t0 = pts.find(p => p.tAbs)?.tAbs?.getTime();
-          if (t0 != null){
-            for (const p of pts) {
-              const t = p.tAbs?.getTime?.();
-              p.te = Number.isFinite(t) ? (t - t0)/1000 : 0;
-            }
-            state.t0Abs = pts.find(p => p.tAbs)?.tAbs ?? null;
-          } else {
-            // fallback
-            pts.sort((a,b)=>a.te - b.te);
-            for (let i=0;i<pts.length;i++) pts[i].te = i;
-            state.t0Abs = null;
-          }
+          for (const p of pts) p.te = (p.tAbs.getTime() - t0)/1000;
+          state.t0Abs = pts.find(p => p.tAbs)?.tAbs ?? null;
         } else {
-          // no absolute timestamp anywhere: use monotonically increasing index-based te
           for (let i=0;i<pts.length;i++) pts[i].te = i;
           state.t0Abs = null;
         }
       }
 
-      // finalize state
       state.points = pts.filter(p => Number.isFinite(p.te));
       state.duration = state.points[state.points.length - 1].te;
 
-      // Start just before 0, so scrubbing "from the first point" feels easy
       state.centerTe = -Math.min(state.padStartSec, 2.0);
       state.spanSec = Math.min(60, Math.max(6, state.duration + state.padStartSec));
 
-      // Build map track using only points with lat/lon
+      rebuildMap();
+      makeChart();
+      updateAtCenter(true);
+
+      if (state.vLoaded && !state.autoOffsetApplied) autoAlignVideoToCSV();
+      updateVideoPlacementNotice();
+      drawVideoTimeline();
+
+      // Map can need a resize after content changes
+      setTimeout(()=>{ try{ map.invalidateSize(); }catch(e){} }, 50);
+    }
+
+    function rebuildMap(){
       const latlngs = state.points
         .filter(p => Number.isFinite(p.lat) && Number.isFinite(p.lon))
         .map(p => [p.lat, p.lon]);
@@ -617,45 +711,54 @@
 
       if (latlngs.length >= 2) {
         state.poly = L.polyline(latlngs, { weight: 4, opacity: 0.75 }).addTo(map);
-
-        // red marker
         state.marker = L.circleMarker(latlngs[0], {
-          radius: 9,
-          weight: 3,
-          color: "#ff3b30",
-          fillColor: "#ff3b30",
-          fillOpacity: 0.90
+          radius: 9, weight: 3, color: "#ff3b30", fillColor: "#ff3b30", fillOpacity: 0.90
         }).addTo(map);
         state.marker.bringToFront();
-
         fitTrack();
       } else {
-        // still allow chart scrubbing even if lat/lon are missing
         state.poly = null;
         state.marker = null;
         map.setView([0,0], 2);
       }
-
-      // Build chart + initial UI update
-      makeChart();
-      updateAtCenter(true);
-
-      // Re-evaluate video placement notice (if video already loaded)
-      updateVideoPlacementNotice();
-
-      // Clear any old parse error notices
-      if (state.points.length) {
-        // keep notice if video-related
-        // (so don't clear unconditionally)
-      }
     }
 
     // =========================
-    // Sync logic
+    // Video alignment
     // =========================
     function getOffsetSec(){
       const v = parseFloat(offsetEl.value);
       return Number.isFinite(v) ? v : 0;
+    }
+    function setOffsetSec(v){
+      offsetEl.value = (Number.isFinite(v) ? v : 0).toFixed(2);
+    }
+
+    function autoAlignVideoToCSV(){
+      if (!state.vLoaded || !state.points.length) return;
+      if (!(state.t0Abs instanceof Date) || isNaN(state.t0Abs.getTime())) {
+        showNotice("Auto-align needs absolute timestamps in the CSV.");
+        return;
+      }
+      if (!Number.isFinite(state.videoFileLastModifiedMs)) {
+        showNotice("Auto-align needs file time from the browser. Try re-selecting the video.");
+        return;
+      }
+
+      const videoEndAbs = new Date(state.videoFileLastModifiedMs);
+      const videoStartAbs = new Date(videoEndAbs.getTime() - state.vDuration * 1000);
+      const off = (videoStartAbs.getTime() - state.t0Abs.getTime()) / 1000;
+
+      setOffsetSec(off);
+      state.autoOffsetApplied = true;
+
+      if (centerIsInVideo()) {
+        const vt = state.centerTe - getOffsetSec();
+        videoEl.currentTime = clamp(vt, 0, videoEl.duration);
+      }
+      updateVideoPlacementNotice();
+      drawVideoTimeline();
+      updateAtCenter(false);
     }
 
     function videoSeg(){
@@ -664,7 +767,6 @@
       const b = a + state.vDuration;
       return {a,b};
     }
-
     function centerIsInVideo(){
       const seg = videoSeg();
       if (!seg) return false;
@@ -672,17 +774,13 @@
     }
 
     function updateVideoPlacementNotice(){
-      if (!state.vLoaded || !state.points.length){
-        // only show notice if needed
-        showNotice("");
-        return;
-      }
+      if (!state.vLoaded || !state.points.length){ showNotice(""); return; }
       const seg = videoSeg();
       const minTe = -state.padStartSec;
       const maxTe = state.duration;
 
       if (seg.b < minTe || seg.a > maxTe){
-        showNotice("Video timing is completely outside the CSV time range (adjust offset).");
+        showNotice("Video timing is completely outside the CSV time range (adjust offset / use Auto-align).");
         return;
       }
       if (seg.a < minTe || seg.b > maxTe){
@@ -698,7 +796,6 @@
         inVidRead.textContent = "no video";
         return;
       }
-
       const inside = centerIsInVideo();
       inVidRead.textContent = inside ? "IN VIDEO" : "outside video";
 
@@ -706,22 +803,21 @@
         const vt = state.centerTe - getOffsetSec();
         videoEl.currentTime = clamp(vt, 0, videoEl.duration);
       }
-
       vRead.textContent = fmtClock(videoEl.currentTime);
     }
 
+    // =========================
+    // Data lookup / readouts
+    // =========================
     function findIndexForTime(te){
       const pts = state.points;
       if (!pts.length) return 0;
-
-      // clamp to data time range for lookup (padding uses first sample)
       const t = clamp(te, 0, state.duration);
 
       if (t <= pts[0].te) return 0;
       if (t >= pts[pts.length-1].te) return pts.length-1;
 
       let i = clamp(state.lastIdx, 0, pts.length-2);
-
       while (i < pts.length-2 && pts[i+1].te < t) i++;
       while (i > 0 && pts[i].te > t) i--;
 
@@ -741,13 +837,8 @@
 
     function setReadouts(p){
       if (!p) return;
-
-      if (p.tAbs instanceof Date && !isNaN(p.tAbs.getTime())) {
-        tRead.textContent = p.tAbs.toISOString().replace(".000Z","Z");
-      } else {
-        // fallback when no absolute time exists
-        tRead.textContent = `${p.te.toFixed(2)}s`;
-      }
+      if (p.tAbs instanceof Date && !isNaN(p.tAbs.getTime())) tRead.textContent = p.tAbs.toISOString().replace(".000Z","Z");
+      else tRead.textContent = `${p.te.toFixed(2)}s`;
 
       sogRead.textContent = Number.isFinite(p.sogKt) ? p.sogKt.toFixed(2) : "—";
       cogRead.textContent = Number.isFinite(p.cog) ? p.cog.toFixed(1) : "—";
@@ -764,13 +855,11 @@
       const p = state.points[idx];
       setReadouts(p);
 
-      // marker update: choose nearest point with valid lat/lon at/around idx
       if (state.marker) {
         let j = idx;
         if (!(Number.isFinite(p.lat) && Number.isFinite(p.lon))) {
-          // search nearby
           let found = -1;
-          for (let r=1;r<30;r++){
+          for (let r=1;r<60;r++){
             const a = idx-r, b = idx+r;
             if (a>=0 && Number.isFinite(state.points[a].lat) && Number.isFinite(state.points[a].lon)) { found=a; break; }
             if (b<state.points.length && Number.isFinite(state.points[b].lat) && Number.isFinite(state.points[b].lon)) { found=b; break; }
@@ -790,7 +879,7 @@
     }
 
     // =========================
-    // Timeline canvas (video segment + playhead)
+    // Timeline canvas
     // =========================
     function resizeTimelineCanvas(){
       const dpr = window.devicePixelRatio || 1;
@@ -817,8 +906,11 @@
     }
 
     function drawVideoTimeline(){
-      const { w, h } = resizeTimelineCanvas();
+      const { w } = resizeTimelineCanvas();
       const ctx = vtCtx;
+      const rect = videoTimeline.getBoundingClientRect();
+      const h = rect.height;
+
       ctx.clearRect(0,0,w,h);
 
       if (!state.points.length) {
@@ -834,15 +926,11 @@
       const span = state.spanSec;
       const half = span/2;
 
-      let wMin = state.centerTe - half;
-      let wMax = state.centerTe + half;
-
-      if (wMin < minTe) { wMax -= (wMin - minTe); wMin = minTe; }
-      if (wMax > maxTe) { wMin -= (wMax - maxTe); wMax = maxTe; }
-      if ((maxTe - minTe) < span) { wMin = minTe; wMax = maxTe; }
+      const wMin = clamp(state.centerTe - half, minTe, maxTe);
+      const wMax = clamp(state.centerTe + half, minTe, maxTe);
 
       const pad = 10;
-      const barY = 36;
+      const barY = 44;
       const barH = 18;
       const barX = pad;
       const barW = w - 2*pad;
@@ -853,13 +941,11 @@
         return barX + u * barW;
       };
 
-      // base bar
       ctx.save();
       ctx.strokeStyle = "rgba(255,255,255,0.14)";
       ctx.fillStyle = "rgba(255,255,255,0.05)";
       roundRect(ctx, barX, barY, barW, barH, 10, true, true);
 
-      // shaded padding zone (negative time)
       if (wMin < 0) {
         const ax = xForTe(wMin);
         const bx = xForTe(Math.min(0, wMax));
@@ -867,12 +953,10 @@
         roundRect(ctx, ax, barY, Math.max(0, bx-ax), barH, 10, true, false);
       }
 
-      // video segment
       if (state.vLoaded) {
         const seg = videoSeg();
         const clipA = clamp(seg.a, wMin, wMax);
         const clipB = clamp(seg.b, wMin, wMax);
-
         if (clipB > clipA) {
           const ax = xForTe(clipA);
           const bx = xForTe(clipB);
@@ -880,19 +964,15 @@
           ctx.strokeStyle = "rgba(103, 232, 249, 0.55)";
           roundRect(ctx, ax, barY, (bx-ax), barH, 10, true, true);
         }
-
-        // current video playhead dot
         const playTe = (videoEl.currentTime || 0) + getOffsetSec();
         if (playTe >= wMin && playTe <= wMax) {
           const px = xForTe(playTe);
           ctx.fillStyle = "rgba(103, 232, 249, 0.95)";
-          ctx.beginPath();
-          ctx.arc(px, barY + barH/2, 4.5, 0, Math.PI*2);
-          ctx.fill();
+          ctx.beginPath(); ctx.arc(px, barY + barH/2, 4.5, 0, Math.PI*2); ctx.fill();
         }
       }
 
-      // red center scrub line
+      // Red center
       const cx = barX + barW/2;
       ctx.strokeStyle = "#ff3b30";
       ctx.lineWidth = 2;
@@ -901,22 +981,13 @@
       ctx.lineTo(cx, barY + barH + 14);
       ctx.stroke();
 
-      // labels
       ctx.fillStyle = "rgba(255,255,255,0.65)";
       ctx.font = "12px ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial";
       ctx.textBaseline = "middle";
-      ctx.fillText(`${wMin.toFixed(1)}s`, barX, 18);
+      ctx.fillText(`${wMin.toFixed(1)}s`, barX, 22);
       const rightLabel = `${wMax.toFixed(1)}s`;
       const rW = ctx.measureText(rightLabel).width;
-      ctx.fillText(rightLabel, barX + barW - rW, 18);
-
-      const inside = centerIsInVideo();
-      const centerInfo =
-        `center=${state.centerTe.toFixed(2)}s` +
-        (state.vLoaded ? ` | vt=${fmtClock(state.centerTe - getOffsetSec())}` : "") +
-        (state.vLoaded ? (inside ? " | IN VIDEO" : " | outside") : "");
-      ctx.fillStyle = "rgba(255,255,255,0.75)";
-      ctx.fillText(centerInfo, barX, barY + barH + 22);
+      ctx.fillText(rightLabel, barX + barW - rW, 22);
 
       ctx.restore();
     }
@@ -929,27 +1000,20 @@
       const w = Math.max(1, rect.width);
       return state.spanSec / w;
     }
-
     function beginDrag(clientX){
       state.dragging = true;
       state.dragStartX = clientX;
       state.dragStartCenter = state.centerTe;
     }
-
     function moveDrag(clientX){
       if (!state.dragging || !state.points.length) return;
       const dx = clientX - state.dragStartX;
       const dSec = dx * secondsPerPixel();
-
-      // grab & drag: move right -> time goes backward
       state.centerTe = state.dragStartCenter - dSec;
-
       applyWindow(false);
-      updateAtCenter(true); // video follows while dragging (only if inside segment)
+      updateAtCenter(true);
     }
-
     function endDrag(){ state.dragging = false; }
-
     function attachPanHandlers(el){
       el.addEventListener("pointerdown", (e) => {
         if (!state.points.length) return;
@@ -960,7 +1024,6 @@
       el.addEventListener("pointerup", endDrag);
       el.addEventListener("pointercancel", endDrag);
     }
-
     attachPanHandlers(chartCanvas);
     attachPanHandlers(videoTimeline);
 
@@ -976,45 +1039,36 @@
       applyWindow(true);
       updateAtCenter(true);
     });
-    centerStartBtn.addEventListener("click", () => {
+    centerZeroBtn.addEventListener("click", () => {
       if (!state.points.length) return;
-      state.centerTe = -Math.min(state.padStartSec, 2.0);
+      state.centerTe = 0;
       applyWindow(true);
       updateAtCenter(true);
     });
 
     // =========================
-    // Playback controls (CSV-driven; keeps going after video ends)
+    // Playback
     // =========================
     function setPlaying(on){
       state.playing = on;
       state.playLastTs = performance.now();
       playPauseBtn.textContent = on ? "Pause" : "Play";
-
-      // If video exists and we are inside segment, keep it playing; otherwise let it be paused.
       if (state.vLoaded) {
         if (on && centerIsInVideo()) videoEl.play().catch(()=>{});
         if (!on) videoEl.pause();
       }
     }
-
     function stepCenter(dt){
       if (!state.points.length) return;
-      const minTe = -state.padStartSec;
-      const maxTe = state.duration;
-
-      state.centerTe = clamp(state.centerTe + dt, minTe, maxTe);
+      state.centerTe = clamp(state.centerTe + dt, -state.padStartSec, state.duration);
       applyWindow(true);
       updateAtCenter(true);
-
-      // If we stepped into the video segment and are "playing", sync video
       if (state.vLoaded && state.playing && centerIsInVideo()) {
         const vt = state.centerTe - getOffsetSec();
         videoEl.currentTime = clamp(vt, 0, videoEl.duration);
         videoEl.play().catch(()=>{});
       }
     }
-
     playPauseBtn.addEventListener("click", () => {
       if (!state.points.length) return;
       setPlaying(!state.playing);
@@ -1023,36 +1077,24 @@
     fwd10Btn.addEventListener("click", () => stepCenter(+10));
 
     // =========================
-    // Video loading
+    // Files / controls
     // =========================
     function loadVideo(file){
+      state.videoFileLastModifiedMs = Number.isFinite(file.lastModified) ? file.lastModified : null;
+      state.autoOffsetApplied = false;
       const url = URL.createObjectURL(file);
       videoEl.src = url;
       videoEl.load();
     }
-
     videoEl.addEventListener("loadedmetadata", () => {
       state.vLoaded = Number.isFinite(videoEl.duration) && videoEl.duration > 0;
       state.vDuration = state.vLoaded ? videoEl.duration : NaN;
-
-      drawVideoTimeline();
+      if (state.points.length && state.t0Abs && state.videoFileLastModifiedMs) autoAlignVideoToCSV();
       updateVideoPlacementNotice();
-
-      // If already have CSV and we're inside the segment, align video to center
-      if (state.points.length && state.vLoaded && centerIsInVideo()) {
-        const vt = state.centerTe - getOffsetSec();
-        videoEl.currentTime = clamp(vt, 0, videoEl.duration);
-      }
+      drawVideoTimeline();
+      updateAtCenter(false);
     });
 
-    // When the real video ends, CSV playback continues — nothing special required.
-    videoEl.addEventListener("ended", () => {
-      // If user later scrubs back into the segment, we will seek and can play again.
-    });
-
-    // =========================
-    // File inputs / buttons
-    // =========================
     videoFileEl.addEventListener("change", (e) => {
       const f = e.target.files?.[0];
       if (f) loadVideo(f);
@@ -1061,22 +1103,17 @@
     csvFileEl.addEventListener("change", async (e) => {
       const f = e.target.files?.[0];
       if (!f) return;
-      try {
-        await loadCSV(f);
-      } catch (err) {
-        showNotice(err?.message || String(err));
-        console.error(err);
-      }
+      try { await loadCSV(f); }
+      catch (err) { showNotice(err?.message || String(err)); console.error(err); }
     });
 
     btnFit.addEventListener("click", fitTrack);
 
     offsetEl.addEventListener("input", () => {
-      drawVideoTimeline();
+      state.autoOffsetApplied = true;
       updateVideoPlacementNotice();
-
-      // keep center fixed; only seek if inside
-      if (state.points.length && state.vLoaded && centerIsInVideo()) {
+      drawVideoTimeline();
+      if (state.vLoaded && centerIsInVideo()) {
         const vt = state.centerTe - getOffsetSec();
         videoEl.currentTime = clamp(vt, 0, videoEl.duration);
       }
@@ -1085,24 +1122,24 @@
 
     btnSetOffset.addEventListener("click", () => {
       if (!state.vLoaded) return;
-      // Offset = centerTe - current video time
       const vt = videoEl.currentTime || 0;
-      const off = state.centerTe - vt;
-      offsetEl.value = off.toFixed(2);
-
-      drawVideoTimeline();
+      setOffsetSec(state.centerTe - vt);
+      state.autoOffsetApplied = true;
       updateVideoPlacementNotice();
-
-      if (state.points.length && centerIsInVideo()) {
+      drawVideoTimeline();
+      if (centerIsInVideo()) {
         const vt2 = state.centerTe - getOffsetSec();
         videoEl.currentTime = clamp(vt2, 0, videoEl.duration);
       }
       updateAtCenter(false);
     });
 
+    btnAutoAlign.addEventListener("click", () => autoAlignVideoToCSV());
+
     window.addEventListener("resize", () => {
       applyWindow(true);
       drawVideoTimeline();
+      try{ map.invalidateSize(); }catch(e){}
     });
 
     // =========================
@@ -1110,33 +1147,20 @@
     // =========================
     function loop(){
       const now = performance.now();
-
       if (state.playing && state.points.length) {
-        const dt = (now - state.playLastTs) / 1000;
+        const dt = (now - state.playLastTs)/1000;
         state.playLastTs = now;
 
-        // advance center across full CSV (including after video ends)
-        state.centerTe += dt;
-        state.centerTe = clamp(state.centerTe, -state.padStartSec, state.duration);
-
+        state.centerTe = clamp(state.centerTe + dt, -state.padStartSec, state.duration);
         applyWindow(false);
         updateAtCenter(false);
 
-        // If inside video, keep video synced and playing
-        if (state.vLoaded) {
-          if (centerIsInVideo()) {
-            const vt = state.centerTe - getOffsetSec();
-            // Resync if drifted or ended
-            if (videoEl.ended || Math.abs(videoEl.currentTime - vt) > 0.30) {
-              videoEl.currentTime = clamp(vt, 0, videoEl.duration);
-            }
-            if (videoEl.paused) videoEl.play().catch(()=>{});
-          }
-          vRead.textContent = fmtClock(videoEl.currentTime);
-          inVidRead.textContent = centerIsInVideo() ? "IN VIDEO" : "outside video";
+        if (state.vLoaded && centerIsInVideo()) {
+          const vt = state.centerTe - getOffsetSec();
+          if (videoEl.ended || Math.abs(videoEl.currentTime - vt) > 0.30) videoEl.currentTime = clamp(vt, 0, videoEl.duration);
+          if (videoEl.paused) videoEl.play().catch(()=>{});
         }
       } else {
-        // idle UI updates
         if (state.vLoaded) {
           vRead.textContent = fmtClock(videoEl.currentTime);
           inVidRead.textContent = centerIsInVideo() ? "IN VIDEO" : "outside video";
@@ -1145,10 +1169,8 @@
           inVidRead.textContent = "no video";
         }
       }
-
       state.raf = requestAnimationFrame(loop);
     }
-
     state.playLastTs = performance.now();
     state.raf = requestAnimationFrame(loop);
   </script>
