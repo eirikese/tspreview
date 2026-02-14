@@ -32,15 +32,16 @@
     *{box-sizing:border-box}
     html,body{height:100%;margin:0;background:var(--bg);color:var(--text);
       font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Arial}
+
     .wrap{
       min-height:100dvh;
       padding:12px;
       display:grid;
-      grid-template-rows:auto 1fr auto;
+      grid-template-rows:auto auto 1fr auto;
       gap:var(--gap);
     }
 
-    /* Header */
+    /* Header: files only */
     .header{
       display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end;justify-content:space-between;
       background:linear-gradient(180deg,var(--panel),var(--panel2));
@@ -48,7 +49,6 @@
       padding:10px;box-shadow:0 10px 30px var(--shadow)
     }
     .headerLeft{display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end}
-    .headerRight{display:flex;gap:10px;align-items:flex-end}
     .block{display:flex;flex-direction:column;gap:4px;min-width:160px}
     label{font-size:12px;color:var(--muted)}
     input[type="file"], input[type="number"], button{
@@ -64,16 +64,11 @@
     .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
 
     .notice{
-      flex:1 1 280px;
-      max-width:720px;
-      font-size:12px;
-      color:rgba(255,255,255,0.85);
       background:rgba(255,59,48,0.12);
       border:1px solid rgba(255,59,48,0.35);
-      padding:8px 10px;
-      border-radius:12px;
+      padding:8px 10px;border-radius:12px;
+      font-size:12px;color:rgba(255,255,255,0.85);
       display:none;
-      margin-top:8px;
     }
 
     /* Content layout (default = LARGE) */
@@ -115,7 +110,7 @@
     video{
       width:100%;
       height:100%;
-      object-fit:contain; /* keep portrait video intact inside landscape tile */
+      object-fit:contain; /* portrait stays intact inside landscape */
       background:#000;
     }
     #map{width:100%;height:100%}
@@ -172,14 +167,37 @@
       background:rgba(0,0,0,.25);
       touch-action:none;
     }
+
+    /* Settings below scrub */
+    .settingsPanel{
+      margin-top:10px;
+      border:1px solid rgba(255,255,255,.10);
+      border-radius:12px;
+      background:rgba(0,0,0,.22);
+      padding:10px;
+      display:grid;
+      grid-template-columns: 1fr 1fr;
+      gap:10px;
+    }
+    .settingsPanel .block{min-width:0}
+    .settingsPanel .row{gap:8px}
+    .settingsPanel .hint{font-size:12px;color:var(--muted)}
+    .settingsPanel .mini{
+      font-size:12px;color:rgba(255,255,255,0.75);
+      background:rgba(255,255,255,.04);
+      border:1px solid rgba(255,255,255,.10);
+      padding:6px 10px;border-radius:10px;
+    }
+
     .small{font-size:12px;color:var(--muted);line-height:1.3;margin-top:8px}
 
-    /* SMALL MODE: force stacking even on big screens */
+    /* SMALL MODE: stack content */
     body.mode-small .content{grid-template-columns:1fr}
     body.mode-small .controlsRow{grid-template-columns:1fr;gap:8px}
     body.mode-small .controlsRow .left,
     body.mode-small .controlsRow .center,
     body.mode-small .controlsRow .right{justify-content:center}
+    body.mode-small .settingsPanel{grid-template-columns:1fr}
 
     /* Auto small on narrow screens, unless user forces large */
     @media (max-width: 860px){
@@ -190,6 +208,7 @@
       body:not(.mode-large-forced) .controlsRow .left,
       body:not(.mode-large-forced) .controlsRow .center,
       body:not(.mode-large-forced) .controlsRow .right{justify-content:center}
+      body:not(.mode-large-forced) .settingsPanel{grid-template-columns:1fr}
       .block{min-width:140px}
     }
   </style>
@@ -197,6 +216,7 @@
 
 <body class="mode-large">
   <div class="wrap">
+    <!-- Header: file inputs only -->
     <div class="header">
       <div class="headerLeft">
         <div class="block">
@@ -209,22 +229,16 @@
           <input id="csvFile" type="file" accept=".csv,text/csv" />
         </div>
 
-        <div class="block" style="min-width:min(560px, 100%);">
-          <label>Sync offset (seconds) — GPS elapsed = videoTime + offset</label>
+        <div class="block" style="min-width:220px;">
+          <label>Quick</label>
           <div class="row">
-            <input id="offsetSec" type="number" step="0.1" value="0" style="width:110px;" />
-            <button id="btnAutoAlign" title="Auto-align using CSV timestamps + video file time (best effort)">Auto-align</button>
-            <button id="btnSetOffset" title="Offset = centerTime - currentVideoTime">Set offset from center</button>
             <button id="btnFit" title="Fit map to track">Fit track</button>
           </div>
         </div>
       </div>
 
-      <div class="headerRight">
-        <div class="block" style="min-width:220px;">
-          <label>Version</label>
-          <div class="small" style="margin:0;">v0.8 — toggle layout mode + always-landscape tiles</div>
-        </div>
+      <!-- no settings here anymore -->
+      <div style="display:flex;gap:10px;align-items:flex-end;">
         <div class="block" style="min-width:170px;">
           <label>Layout</label>
           <button id="btnToggleMode" title="Toggle between large (side-by-side) and small (stacked) layouts">Small mode</button>
@@ -253,7 +267,7 @@
     <div class="chartCard">
       <div class="topBar">
         <div class="pill">SOG — drag to pan; red center scrub; marker follows</div>
-        <div class="pill">Video segment placed by offset (auto-align available)</div>
+        <div class="pill">Map window: visible scrub range highlighted</div>
       </div>
 
       <div class="controlsRow">
@@ -292,8 +306,46 @@
         <canvas id="videoTimeline"></canvas>
       </div>
 
+      <!-- Settings moved BELOW scrub line -->
+      <div class="settingsPanel">
+        <div class="block">
+          <label>Sync offset (H:M:S)</label>
+          <div class="row">
+            <input id="offsetHours" type="number" step="1" value="0" style="width:70px;" placeholder="H" title="Hours" />
+            <span style="color:var(--muted);">:</span>
+            <input id="offsetMin" type="number" step="1" value="0" style="width:70px;" placeholder="M" title="Minutes" />
+            <span style="color:var(--muted);">:</span>
+            <input id="offsetSec" type="number" step="0.1" value="0" style="width:70px;" placeholder="S" title="Seconds" />
+            <button id="btnSetOffset" title="Offset = centerTime - currentVideoTime">Set from center</button>
+            <button id="btnAutoAlign" title="Auto-align using CSV start time and video start time (best effort)">Auto-align</button>
+          </div>
+          <div class="hint">GPS elapsed = videoTime + offset. Offset is defined from the <b>start</b> of the video.</div>
+        </div>
+
+        <div class="block">
+          <label>Timezone shift (hours)</label>
+          <div class="row">
+            <button id="tzMinus">−1h</button>
+            <input id="tzShiftHours" type="number" step="1" value="0" style="width:90px;" />
+            <button id="tzPlus">+1h</button>
+            <button id="tzApply" title="Apply hour shift to auto alignment (common when timestamps differ by timezone)">Apply</button>
+          </div>
+          <div class="hint">If auto-align is off by whole hours, set this and Apply.</div>
+        </div>
+
+        <div class="block">
+          <label>Version</label>
+          <div class="mini">v0.9 — video offset from start + TZ shift + map window highlight</div>
+        </div>
+
+        <div class="block">
+          <label>Layout</label>
+          <div class="mini">Use the top-right button to switch Large/Small mode.</div>
+        </div>
+      </div>
+
       <div class="small">
-        Chart includes a padded “null” segment before t=0 so you can scrub the red center line to the very first data point.
+        The chart includes a padded “null” segment before t=0 so you can scrub the red center line to the very first data point.
       </div>
     </div>
   </div>
@@ -347,8 +399,14 @@
 
       chart: null,
 
-      poly: null,
+      // map layers
+      polyAll: null,
+      polyWindow: null,
       marker: null,
+
+      // current visible window [wMin, wMax]
+      wMin: 0,
+      wMax: 0,
 
       dragging: false,
       dragStartX: 0,
@@ -356,8 +414,9 @@
 
       vLoaded: false,
       vDuration: NaN,
-      videoFileLastModifiedMs: null,
-      autoOffsetApplied: false,
+
+      // Video "start time" (best-effort from file lastModified)
+      videoStartAbsMs: null,
 
       playing: false,
       playLastTs: 0,
@@ -375,9 +434,18 @@
     const videoEl = document.getElementById("video");
     const videoFileEl = document.getElementById("videoFile");
     const csvFileEl = document.getElementById("csvFile");
+
+    const offsetHoursEl = document.getElementById("offsetHours");
+    const offsetMinEl = document.getElementById("offsetMin");
     const offsetEl = document.getElementById("offsetSec");
     const btnAutoAlign = document.getElementById("btnAutoAlign");
     const btnSetOffset = document.getElementById("btnSetOffset");
+
+    const tzShiftEl = document.getElementById("tzShiftHours");
+    const tzMinusBtn = document.getElementById("tzMinus");
+    const tzPlusBtn = document.getElementById("tzPlus");
+    const tzApplyBtn = document.getElementById("tzApply");
+
     const btnFit = document.getElementById("btnFit");
 
     const zoomInBtn = document.getElementById("zoomIn");
@@ -410,26 +478,18 @@
         bodyEl.classList.add("mode-small");
         bodyEl.classList.remove("mode-large-forced");
         btnToggleMode.textContent = "Large mode";
-        // allow Leaflet to resize properly after layout change
-        setTimeout(()=>{ try{ map.invalidateSize(); }catch(e){} }, 50);
       } else {
         bodyEl.classList.remove("mode-small");
-        bodyEl.classList.add("mode-large-forced"); // user explicitly wants large even if narrow
+        bodyEl.classList.add("mode-large-forced");
         btnToggleMode.textContent = "Small mode";
-        setTimeout(()=>{ try{ map.invalidateSize(); }catch(e){} }, 50);
       }
-      // force timeline redraw for correct canvas sizing
-      setTimeout(()=>{ applyWindow(true); drawVideoTimeline(); }, 60);
+      setTimeout(()=>{ try{ map.invalidateSize(); }catch(e){} }, 60);
+      setTimeout(()=>{ applyWindow(true); drawVideoTimeline(); }, 80);
     }
-
     btnToggleMode.addEventListener("click", () => {
       const isSmall = bodyEl.classList.contains("mode-small");
       setModeSmall(!isSmall);
     });
-
-    // Start in large mode by default (no forced flag; user can toggle)
-    bodyEl.classList.remove("mode-small");
-    bodyEl.classList.remove("mode-large-forced");
     btnToggleMode.textContent = "Small mode";
 
     // =========================
@@ -443,8 +503,9 @@
     map.setView([0,0], 2);
 
     function fitTrack(){
-      if (!state.poly) return;
-      const b = state.poly.getBounds();
+      const layer = state.polyAll;
+      if (!layer) return;
+      const b = layer.getBounds();
       if (b.isValid()) map.fitBounds(b.pad(0.1));
     }
 
@@ -474,12 +535,10 @@
       const steps = Math.max(6, state.padNullSteps);
       const pad = state.padStartSec;
 
-      // null pad before 0
       for (let i=steps; i>=1; i--){
         const x = -pad * (i/steps);
         arr.push({ x, y: null });
       }
-      // explicit point at x=0 with null ensures tick/grid/scale includes 0 cleanly
       arr.push({ x: 0, y: null });
 
       for (const p of state.points){
@@ -535,7 +594,7 @@
       const span = clamp(state.spanSec, 2, spanMax);
       const half = span/2;
 
-      // keep center anchored; near edges window shrinks
+      // keep center anchored; window shrinks at edges
       let wMin = clamp(state.centerTe - half, minTe, maxTe);
       let wMax = clamp(state.centerTe + half, minTe, maxTe);
       if (wMax - wMin < 0.1) {
@@ -543,9 +602,14 @@
         wMax = clamp(state.centerTe + 0.5, minTe, maxTe);
       }
 
+      state.wMin = wMin;
+      state.wMax = wMax;
+
       state.chart.options.scales.x.min = wMin;
       state.chart.options.scales.x.max = wMax;
       state.chart.update("none");
+
+      updateMapWindowHighlight();
 
       if (redrawTimeline) drawVideoTimeline();
     }
@@ -693,72 +757,140 @@
       makeChart();
       updateAtCenter(true);
 
-      if (state.vLoaded && !state.autoOffsetApplied) autoAlignVideoToCSV();
-      updateVideoPlacementNotice();
-      drawVideoTimeline();
+      // after CSV import, if we have video start time, attempt auto align once
+      maybeAutoAlign("csv");
 
-      // Map can need a resize after content changes
-      setTimeout(()=>{ try{ map.invalidateSize(); }catch(e){} }, 50);
+      setTimeout(()=>{ try{ map.invalidateSize(); }catch(e){} }, 60);
     }
 
+    // =========================
+    // Map rebuild + highlight window
+    // =========================
     function rebuildMap(){
-      const latlngs = state.points
+      const latlngsAll = state.points
         .filter(p => Number.isFinite(p.lat) && Number.isFinite(p.lon))
         .map(p => [p.lat, p.lon]);
 
-      if (state.poly) state.poly.remove();
+      if (state.polyAll) state.polyAll.remove();
+      if (state.polyWindow) state.polyWindow.remove();
       if (state.marker) state.marker.remove();
 
-      if (latlngs.length >= 2) {
-        state.poly = L.polyline(latlngs, { weight: 4, opacity: 0.75 }).addTo(map);
-        state.marker = L.circleMarker(latlngs[0], {
-          radius: 9, weight: 3, color: "#ff3b30", fillColor: "#ff3b30", fillOpacity: 0.90
+      if (latlngsAll.length >= 2) {
+        // full track (lighter blue)
+        state.polyAll = L.polyline(latlngsAll, { weight: 4, opacity: 0.55, color: "#4ea1ff" }).addTo(map);
+
+        // visible window track (darker blue)
+        state.polyWindow = L.polyline([], { weight: 7, opacity: 0.85, color: "#1f6fff" }).addTo(map);
+
+        // red scrub marker
+        state.marker = L.circleMarker(latlngsAll[0], {
+          radius: 9, weight: 3, color: "#ff3b30", fillColor: "#ff3b30", fillOpacity: 0.92
         }).addTo(map);
         state.marker.bringToFront();
-        fitTrack();
+
+        const b = state.polyAll.getBounds();
+        if (b.isValid()) map.fitBounds(b.pad(0.1));
+
+        updateMapWindowHighlight();
       } else {
-        state.poly = null;
+        state.polyAll = null;
+        state.polyWindow = null;
         state.marker = null;
         map.setView([0,0], 2);
       }
     }
 
+    function updateMapWindowHighlight(){
+      if (!state.polyWindow) return;
+      if (!state.points.length) return;
+
+      const wMin = state.wMin ?? 0;
+      const wMax = state.wMax ?? 0;
+
+      const latlngsWindow = [];
+      for (const p of state.points){
+        if (p.te < wMin || p.te > wMax) continue;
+        if (!Number.isFinite(p.lat) || !Number.isFinite(p.lon)) continue;
+        latlngsWindow.push([p.lat, p.lon]);
+      }
+
+      state.polyWindow.setLatLngs(latlngsWindow);
+      // keep red marker on top
+      if (state.marker) state.marker.bringToFront();
+    }
+
+    function fitTrackBtn(){
+      fitTrack();
+    }
+
     // =========================
-    // Video alignment
+    // Video timing + alignment (OFFSET FROM START)
     // =========================
     function getOffsetSec(){
-      const v = parseFloat(offsetEl.value);
-      return Number.isFinite(v) ? v : 0;
+      const h = parseInt(offsetHoursEl.value, 10) || 0;
+      const m = parseInt(offsetMinEl.value, 10) || 0;
+      const s = parseFloat(offsetEl.value) || 0;
+      return h * 3600 + m * 60 + s;
     }
     function setOffsetSec(v){
-      offsetEl.value = (Number.isFinite(v) ? v : 0).toFixed(2);
+      if (!Number.isFinite(v)) v = 0;
+      const negative = v < 0;
+      v = Math.abs(v);
+      const h = Math.floor(v / 3600);
+      const m = Math.floor((v % 3600) / 60);
+      const s = v % 60;
+      offsetHoursEl.value = (negative ? -h : h);
+      offsetMinEl.value = m;
+      offsetEl.value = s.toFixed(2);
+    }
+    function getTzShiftHours(){
+      const v = parseInt(tzShiftEl.value, 10);
+      return Number.isFinite(v) ? v : 0;
     }
 
-    function autoAlignVideoToCSV(){
-      if (!state.vLoaded || !state.points.length) return;
-      if (!(state.t0Abs instanceof Date) || isNaN(state.t0Abs.getTime())) {
-        showNotice("Auto-align needs absolute timestamps in the CSV.");
-        return;
-      }
-      if (!Number.isFinite(state.videoFileLastModifiedMs)) {
-        showNotice("Auto-align needs file time from the browser. Try re-selecting the video.");
-        return;
-      }
+    // We treat file.lastModified as the START time of the video (best-effort).
+    // If it’s actually end time on your platform, the TZ shift controls will still help for whole-hour issues,
+    // and you can also Set-from-center for fine alignment.
+    function computeAutoOffsetSec(){
+      if (!state.videoStartAbsMs) return null;
+      if (!(state.t0Abs instanceof Date) || isNaN(state.t0Abs.getTime())) return null;
 
-      const videoEndAbs = new Date(state.videoFileLastModifiedMs);
-      const videoStartAbs = new Date(videoEndAbs.getTime() - state.vDuration * 1000);
+      const tzShift = getTzShiftHours() * 3600;
+      const videoStartAbs = new Date(state.videoStartAbsMs + tzShift*1000);
       const off = (videoStartAbs.getTime() - state.t0Abs.getTime()) / 1000;
+      return off;
+    }
+
+    function maybeAutoAlign(reason){
+      // only auto-align if both sides present
+      if (!state.vLoaded || !state.points.length) return;
+
+      const off = computeAutoOffsetSec();
+      if (off == null){
+        if (state.points.length && !(state.t0Abs instanceof Date)) {
+          showNotice("Auto-align needs absolute timestamps in the CSV (Vakaros timestamp or RED iso_time).");
+        }
+        return;
+      }
 
       setOffsetSec(off);
-      state.autoOffsetApplied = true;
-
-      if (centerIsInVideo()) {
-        const vt = state.centerTe - getOffsetSec();
-        videoEl.currentTime = clamp(vt, 0, videoEl.duration);
-      }
       updateVideoPlacementNotice();
       drawVideoTimeline();
-      updateAtCenter(false);
+      updateAtCenter(true);
+
+      // show a hint if it looks badly out of range (common: timezone)
+      const seg = videoSeg();
+      if (seg){
+        const minTe = -state.padStartSec;
+        const maxTe = state.duration;
+        const totallyOutside = (seg.b < minTe || seg.a > maxTe);
+        if (totallyOutside){
+          showNotice("Auto-align placed the video outside the CSV range. Try Timezone shift (± hours) then Apply, or use Set-from-center.");
+        } else {
+          // only clear if the prior notice was about alignment; keep range notices
+          // (we'll let updateVideoPlacementNotice handle final message)
+        }
+      }
     }
 
     function videoSeg(){
@@ -774,19 +906,24 @@
     }
 
     function updateVideoPlacementNotice(){
-      if (!state.vLoaded || !state.points.length){ showNotice(""); return; }
+      if (!state.vLoaded || !state.points.length){
+        // don't overwrite other notices (but simplest: clear)
+        // caller will set if needed
+        return;
+      }
       const seg = videoSeg();
       const minTe = -state.padStartSec;
       const maxTe = state.duration;
 
       if (seg.b < minTe || seg.a > maxTe){
-        showNotice("Video timing is completely outside the CSV time range (adjust offset / use Auto-align).");
+        showNotice("Video timing is completely outside the CSV time range (adjust offset / timezone shift / Set-from-center).");
         return;
       }
       if (seg.a < minTe || seg.b > maxTe){
         showNotice("Video overlaps CSV, but part of the video lies outside the CSV time range.");
         return;
       }
+      // only clear if no other message is relevant
       showNotice("");
     }
 
@@ -855,6 +992,7 @@
       const p = state.points[idx];
       setReadouts(p);
 
+      // marker update (nearest valid lat/lon)
       if (state.marker) {
         let j = idx;
         if (!(Number.isFinite(p.lat) && Number.isFinite(p.lon))) {
@@ -875,11 +1013,11 @@
 
       followCenterToVideo(seekVideo);
       drawVideoTimeline();
-      updateVideoPlacementNotice();
+      if (state.vLoaded && state.points.length) updateVideoPlacementNotice();
     }
 
     // =========================
-    // Timeline canvas
+    // Video timeline canvas
     // =========================
     function resizeTimelineCanvas(){
       const dpr = window.devicePixelRatio || 1;
@@ -906,11 +1044,8 @@
     }
 
     function drawVideoTimeline(){
-      const { w } = resizeTimelineCanvas();
+      const { w, h } = resizeTimelineCanvas();
       const ctx = vtCtx;
-      const rect = videoTimeline.getBoundingClientRect();
-      const h = rect.height;
-
       ctx.clearRect(0,0,w,h);
 
       if (!state.points.length) {
@@ -946,6 +1081,7 @@
       ctx.fillStyle = "rgba(255,255,255,0.05)";
       roundRect(ctx, barX, barY, barW, barH, 10, true, true);
 
+      // negative pad shading
       if (wMin < 0) {
         const ax = xForTe(wMin);
         const bx = xForTe(Math.min(0, wMax));
@@ -953,6 +1089,7 @@
         roundRect(ctx, ax, barY, Math.max(0, bx-ax), barH, 10, true, false);
       }
 
+      // video segment
       if (state.vLoaded) {
         const seg = videoSeg();
         const clipA = clamp(seg.a, wMin, wMax);
@@ -972,7 +1109,7 @@
         }
       }
 
-      // Red center
+      // red center scrub line
       const cx = barX + barW/2;
       ctx.strokeStyle = "#ff3b30";
       ctx.lineWidth = 2;
@@ -981,6 +1118,7 @@
       ctx.lineTo(cx, barY + barH + 14);
       ctx.stroke();
 
+      // labels
       ctx.fillStyle = "rgba(255,255,255,0.65)";
       ctx.font = "12px ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial";
       ctx.textBaseline = "middle";
@@ -1077,20 +1215,24 @@
     fwd10Btn.addEventListener("click", () => stepCenter(+10));
 
     // =========================
-    // Files / controls
+    // File inputs + settings
     // =========================
     function loadVideo(file){
-      state.videoFileLastModifiedMs = Number.isFinite(file.lastModified) ? file.lastModified : null;
-      state.autoOffsetApplied = false;
+      // IMPORTANT: treat lastModified as video START time (best-effort)
+      state.videoStartAbsMs = Number.isFinite(file.lastModified) ? file.lastModified : null;
+
       const url = URL.createObjectURL(file);
       videoEl.src = url;
       videoEl.load();
     }
+
     videoEl.addEventListener("loadedmetadata", () => {
       state.vLoaded = Number.isFinite(videoEl.duration) && videoEl.duration > 0;
       state.vDuration = state.vLoaded ? videoEl.duration : NaN;
-      if (state.points.length && state.t0Abs && state.videoFileLastModifiedMs) autoAlignVideoToCSV();
-      updateVideoPlacementNotice();
+
+      // try auto-align immediately if CSV already loaded
+      maybeAutoAlign("video");
+
       drawVideoTimeline();
       updateAtCenter(false);
     });
@@ -1107,34 +1249,41 @@
       catch (err) { showNotice(err?.message || String(err)); console.error(err); }
     });
 
-    btnFit.addEventListener("click", fitTrack);
+    btnFit.addEventListener("click", fitTrackBtn);
 
+    // manual offset edits
     offsetEl.addEventListener("input", () => {
-      state.autoOffsetApplied = true;
-      updateVideoPlacementNotice();
       drawVideoTimeline();
-      if (state.vLoaded && centerIsInVideo()) {
-        const vt = state.centerTe - getOffsetSec();
-        videoEl.currentTime = clamp(vt, 0, videoEl.duration);
-      }
-      updateAtCenter(false);
+      updateAtCenter(true);
+      if (state.vLoaded && state.points.length) updateVideoPlacementNotice();
     });
 
     btnSetOffset.addEventListener("click", () => {
       if (!state.vLoaded) return;
       const vt = videoEl.currentTime || 0;
       setOffsetSec(state.centerTe - vt);
-      state.autoOffsetApplied = true;
-      updateVideoPlacementNotice();
       drawVideoTimeline();
-      if (centerIsInVideo()) {
-        const vt2 = state.centerTe - getOffsetSec();
-        videoEl.currentTime = clamp(vt2, 0, videoEl.duration);
-      }
-      updateAtCenter(false);
+      updateAtCenter(true);
+      if (state.points.length) updateVideoPlacementNotice();
     });
 
-    btnAutoAlign.addEventListener("click", () => autoAlignVideoToCSV());
+    btnAutoAlign.addEventListener("click", () => {
+      maybeAutoAlign("button");
+    });
+
+    // timezone shift helpers
+    tzMinusBtn.addEventListener("click", () => {
+      const v = getTzShiftHours();
+      tzShiftEl.value = String(v - 1);
+    });
+    tzPlusBtn.addEventListener("click", () => {
+      const v = getTzShiftHours();
+      tzShiftEl.value = String(v + 1);
+    });
+    tzApplyBtn.addEventListener("click", () => {
+      // re-run auto-align using current tzShiftHours
+      maybeAutoAlign("tzApply");
+    });
 
     window.addEventListener("resize", () => {
       applyWindow(true);
@@ -1147,6 +1296,7 @@
     // =========================
     function loop(){
       const now = performance.now();
+
       if (state.playing && state.points.length) {
         const dt = (now - state.playLastTs)/1000;
         state.playLastTs = now;
@@ -1155,12 +1305,16 @@
         applyWindow(false);
         updateAtCenter(false);
 
+        // keep video synced only while center is inside segment (CSV keeps going after video ends)
         if (state.vLoaded && centerIsInVideo()) {
           const vt = state.centerTe - getOffsetSec();
-          if (videoEl.ended || Math.abs(videoEl.currentTime - vt) > 0.30) videoEl.currentTime = clamp(vt, 0, videoEl.duration);
+          if (videoEl.ended || Math.abs(videoEl.currentTime - vt) > 0.30) {
+            videoEl.currentTime = clamp(vt, 0, videoEl.duration);
+          }
           if (videoEl.paused) videoEl.play().catch(()=>{});
         }
       } else {
+        // idle readouts
         if (state.vLoaded) {
           vRead.textContent = fmtClock(videoEl.currentTime);
           inVidRead.textContent = centerIsInVideo() ? "IN VIDEO" : "outside video";
@@ -1169,6 +1323,7 @@
           inVidRead.textContent = "no video";
         }
       }
+
       state.raf = requestAnimationFrame(loop);
     }
     state.playLastTs = performance.now();
