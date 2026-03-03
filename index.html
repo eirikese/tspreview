@@ -1,1333 +1,1994 @@
 <!doctype html>
 <html lang="en">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-  <title>Video + GPS CSV Sync</title>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Dual Athlete Viewer — Standalone (No Python / No ExifTool)</title>
 
-  <!-- Leaflet (map) -->
-  <link
-    rel="stylesheet"
-    href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
-    integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
-    crossorigin=""
-  />
-  <script
-    src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
-    integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
-    crossorigin=""
-  ></script>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 
-  <!-- Chart.js -->
-  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <!-- MediaPipe Pose -->
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose@0.5.1675469404/pose.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils@0.3.1675466124/drawing_utils.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils@0.3.1675466862/camera_utils.js" crossorigin="anonymous"></script>
 
   <style>
-    :root{
-      --bg:#0b0f14; --panel:#111823; --panel2:#0e151f;
-      --text:#e6edf3; --muted:#9fb0c0;
-      --border:rgba(255,255,255,.10); --shadow:rgba(0,0,0,.35);
-      --radius:14px; --gap:12px;
-      --scrub:#ff3b30;
-    }
-    *{box-sizing:border-box}
-    html,body{height:100%;margin:0;background:var(--bg);color:var(--text);
-      font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Arial}
+    *,*::before,*::after{box-sizing:border-box;}
+    html,body{height:100%;margin:0;background:#0b0f14;color:#e6edf3;
+      font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;}
 
-    .wrap{
-      min-height:100dvh;
-      padding:12px;
-      display:grid;
-      grid-template-rows:auto auto 1fr auto;
-      gap:var(--gap);
-    }
+    /* ===== SETUP PHASE ===== */
+    #setupPhase{max-width:900px;margin:40px auto;padding:20px;}
+    #setupPhase h1{margin:0 0 6px;font-size:22px;}
+    #setupPhase .sub{color:#8899aa;font-size:13px;margin-bottom:24px;}
 
-    /* Header: files only */
-    .header{
-      display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end;justify-content:space-between;
-      background:linear-gradient(180deg,var(--panel),var(--panel2));
-      border:1px solid var(--border);border-radius:var(--radius);
-      padding:10px;box-shadow:0 10px 30px var(--shadow)
-    }
-    .headerLeft{display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end}
-    .block{display:flex;flex-direction:column;gap:4px;min-width:160px}
-    label{font-size:12px;color:var(--muted)}
-    input[type="file"], input[type="number"], button{
-      background:rgba(255,255,255,.05);
-      border:1px solid var(--border);
-      color:var(--text);
-      border-radius:10px;
-      padding:8px 10px;
-      font-size:14px
-    }
-    button{cursor:pointer;user-select:none;white-space:nowrap}
-    button:active{transform:scale(.99)}
-    .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+    .card{background:#111826;border:1px solid #223047;border-radius:12px;padding:18px 22px;margin-bottom:16px;}
+    .card h2{margin:0 0 10px;font-size:16px;}
+    .card .desc{font-size:12px;color:#8899aa;margin-bottom:10px;}
 
-    .notice{
-      background:rgba(255,59,48,0.12);
-      border:1px solid rgba(255,59,48,0.35);
-      padding:8px 10px;border-radius:12px;
-      font-size:12px;color:rgba(255,255,255,0.85);
-      display:none;
-    }
+    .drop-zone{border:2px dashed #223047;border-radius:10px;padding:30px;text-align:center;
+      color:#556677;cursor:pointer;transition:border-color 0.2s,background 0.2s;}
+    .drop-zone.over{border-color:#42a5f5;background:rgba(66,165,245,0.06);}
+    .drop-zone input[type="file"]{display:none;}
+    .drop-zone .hint{font-size:12px;margin-top:6px;color:#445566;}
 
-    /* Content layout (default = LARGE) */
-    .content{
-      display:grid;
-      grid-template-columns:1fr 1fr;
-      gap:var(--gap);
-      align-items:stretch;
-    }
+    .file-list{margin-top:10px;font-size:12px;font-family:monospace;max-height:180px;overflow-y:auto;}
+    .file-list .f{padding:2px 0;display:flex;align-items:center;gap:6px;}
+    .file-list .f .sz{color:#667788;}
+    .file-list .f .rm{color:#ef5350;cursor:pointer;font-weight:bold;}
 
-    .card{
-      background:linear-gradient(180deg,var(--panel),var(--panel2));
-      border:1px solid var(--border);
-      border-radius:var(--radius);
-      overflow:hidden;
-      box-shadow:0 10px 30px var(--shadow);
-      position:relative;
-      display:flex;
-      flex-direction:column;
-    }
-    .cardTitle{
-      position:absolute;top:10px;left:10px;z-index:10;
-      font-size:12px;color:var(--muted);
-      background:rgba(0,0,0,.35);
-      border:1px solid rgba(255,255,255,.10);
-      padding:6px 10px;border-radius:999px;
-      backdrop-filter:blur(6px)
-    }
+    .progress-bar{height:6px;background:#1a2233;border-radius:3px;overflow:hidden;margin-top:8px;}
+    .progress-bar .fill{height:100%;background:#42a5f5;width:0%;transition:width 0.15s;}
 
-    /* Always-landscape tiles */
-    .tile{
-      width:100%;
-      aspect-ratio: 16 / 9;
-      background:#000;
-      position:relative;
-      overflow:hidden;
-      flex: 1 1 auto;
-    }
-    video{
-      width:100%;
-      height:100%;
-      object-fit:contain; /* portrait stays intact inside landscape */
-      background:#000;
-    }
-    #map{width:100%;height:100%}
+    .log{font-family:monospace;font-size:11px;max-height:200px;overflow-y:auto;
+      background:#0a0e14;border:1px solid #1a2233;border-radius:8px;padding:8px 10px;
+      margin-top:10px;line-height:1.5;white-space:pre-wrap;}
+    .log .ok{color:#66bb6a;} .log .warn{color:#ffa726;} .log .err{color:#ef5350;}
+    .log .info{color:#42a5f5;}
 
-    /* Chart */
-    .chartCard{
-      background:linear-gradient(180deg,var(--panel),var(--panel2));
-      border:1px solid var(--border);
-      border-radius:var(--radius);
-      overflow:hidden;
-      box-shadow:0 10px 30px var(--shadow);
-      padding:10px;
-    }
-    .topBar{
-      display:flex;gap:10px;align-items:center;justify-content:space-between;flex-wrap:wrap;
-      margin-bottom:8px;
-    }
-    .pill{
-      font-size:12px;color:var(--muted);
-      background:rgba(0,0,0,.35);
-      border:1px solid rgba(255,255,255,.10);
-      padding:6px 10px;border-radius:999px;
-    }
-    .controlsRow{
-      display:grid;
-      grid-template-columns:1fr auto 1fr;
-      align-items:center;
-      gap:10px;
-      margin:6px 0 8px 0;
-    }
-    .controlsRow .left, .controlsRow .right{
-      display:flex;gap:8px;flex-wrap:wrap;align-items:center;
-    }
-    .controlsRow .center{
-      display:flex;gap:8px;flex-wrap:nowrap;align-items:center;justify-content:center;
-      min-width:0;
-    }
-    .status{
-      font-size:12px;color:var(--muted);
-      display:flex;gap:10px;flex-wrap:wrap;align-items:center;
-      margin-bottom:8px;
-    }
-    .status b{color:var(--text);font-weight:600}
+    .btn{background:#0b1220;color:#e6edf3;border:1px solid #223047;border-radius:10px;
+      padding:10px 22px;cursor:pointer;font-size:14px;font-weight:bold;transition:border-color 0.2s;}
+    .btn:hover{border-color:#42a5f5;}
+    .btn:disabled{opacity:0.4;cursor:not-allowed;}
+    .btn.primary{border-color:#42a5f5;background:#0d1b2e;}
 
-    #chartWrap{position:relative;height:220px;touch-action:none}
-    #chart{width:100%;height:220px}
+    .assignment{font-size:12px;font-family:monospace;margin-top:10px;line-height:1.6;}
+    .assignment .red{color:#ef5350;font-weight:bold;}
+    .assignment .blue{color:#42a5f5;font-weight:bold;}
+    .assignment .grey{color:#667788;}
 
-    #videoTimelineWrap{margin-top:10px;touch-action:none}
-    #videoTimeline{
-      width:100%;
-      height:110px;
-      border-radius:12px;
-      border:1px solid rgba(255,255,255,.10);
-      background:rgba(0,0,0,.25);
-      touch-action:none;
-    }
+    .setup-row{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-top:12px;}
 
-    /* Settings below scrub */
-    .settingsPanel{
-      margin-top:10px;
-      border:1px solid rgba(255,255,255,.10);
-      border-radius:12px;
-      background:rgba(0,0,0,.22);
-      padding:10px;
-      display:grid;
-      grid-template-columns: 1fr 1fr;
-      gap:10px;
-    }
-    .settingsPanel .block{min-width:0}
-    .settingsPanel .row{gap:8px}
-    .settingsPanel .hint{font-size:12px;color:var(--muted)}
-    .settingsPanel .mini{
-      font-size:12px;color:rgba(255,255,255,0.75);
-      background:rgba(255,255,255,.04);
-      border:1px solid rgba(255,255,255,.10);
-      padding:6px 10px;border-radius:10px;
-    }
+    .settings-row{display:flex;gap:20px;align-items:center;flex-wrap:wrap;margin-top:8px;font-size:12px;}
+    .settings-row label{cursor:pointer;display:flex;align-items:center;gap:4px;}
 
-    .small{font-size:12px;color:var(--muted);line-height:1.3;margin-top:8px}
+    /* ===== VIEWER PHASE ===== */
+    #viewerPhase{display:none;height:100%;}
 
-    /* SMALL MODE: stack content */
-    body.mode-small .content{grid-template-columns:1fr}
-    body.mode-small .controlsRow{grid-template-columns:1fr;gap:8px}
-    body.mode-small .controlsRow .left,
-    body.mode-small .controlsRow .center,
-    body.mode-small .controlsRow .right{justify-content:center}
-    body.mode-small .settingsPanel{grid-template-columns:1fr}
+    .wrap{height:100%;display:grid;grid-template-columns:1fr 1fr;
+      grid-template-rows:1fr auto auto;gap:10px;padding:10px;}
 
-    /* Auto small on narrow screens, unless user forces large */
-    @media (max-width: 860px){
-      body:not(.mode-large-forced) .content{grid-template-columns:1fr}
-    }
-    @media (max-width: 420px){
-      body:not(.mode-large-forced) .controlsRow{grid-template-columns:1fr;gap:8px}
-      body:not(.mode-large-forced) .controlsRow .left,
-      body:not(.mode-large-forced) .controlsRow .center,
-      body:not(.mode-large-forced) .controlsRow .right{justify-content:center}
-      body:not(.mode-large-forced) .settingsPanel{grid-template-columns:1fr}
-      .block{min-width:140px}
-    }
+    .panel{background:#111826;border:1px solid #223047;border-radius:10px;}
+    .nopad{padding:0;overflow:hidden;}
+
+    .left{display:flex;flex-direction:column;gap:6px;padding:10px;}
+
+    .bottom-bar{grid-column:1/-1;background:#111826;border:1px solid #223047;
+      border-radius:10px;padding:10px 14px;display:flex;flex-wrap:wrap;gap:8px 16px;align-items:center;}
+
+    .file-row-v{display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
+    .file-row-v label{font-weight:bold;white-space:nowrap;}
+
+    .fstat{font-size:11px;line-height:1.3;}
+    .fstat .ok{color:#66bb6a;} .fstat .miss{color:#ff7043;}
+
+    .ctrl-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
+    input[type="range"]{flex:1;min-width:80px;}
+
+    button{background:#0b1220;color:#e6edf3;border:1px solid #223047;
+      border-radius:10px;padding:8px 14px;cursor:pointer;white-space:nowrap;}
+    button:hover{border-color:#35507a;}
+
+    .stats-row{display:flex;gap:12px;flex-wrap:wrap;}
+    .mono{font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;}
+    .small{font-size:12px;}
+    code{background:#0b1220;padding:2px 6px;border-radius:6px;}
+
+    .vid-stack{flex:1;min-height:0;display:flex;flex-direction:column;gap:8px;}
+    .vid-box{flex:1;min-height:250px;position:relative;border-radius:10px;overflow:hidden;display:flex;}
+    .red-frame{border:3px solid #e53935;} .blue-frame{border:3px solid #1e88e5;}
+    .vid-box video{position:absolute;top:0;left:0;width:100%;height:100%;
+      object-fit:contain;background:#000;display:none;}
+    .vid-box canvas.pose-overlay{position:absolute;top:0;left:0;width:100%;height:100%;
+      object-fit:contain;pointer-events:none;z-index:10;}
+
+    .blk{position:absolute;top:0;left:0;width:100%;height:100%;background:#000;
+      display:flex;align-items:center;justify-content:center;
+      color:#555;font-size:13px;z-index:5;pointer-events:none;}
+
+    #mapW{position:relative;width:100%;height:100%;}
+    #map{width:100%;height:100%;}
+
+    .arrow-icon{background:none !important;border:none !important;}
+    .arrow-svg{transform-origin:center center;}
+
+    .overlay{position:absolute;top:10px;right:10px;z-index:1000;
+      background:rgba(10,16,26,0.88);border:1px solid rgba(80,120,170,0.35);
+      border-radius:10px;padding:10px 14px;font-size:12px;line-height:1.45;
+      backdrop-filter:blur(4px);max-width:70%;pointer-events:none;}
+    .overlay hr{border:none;border-top:1px solid #223047;margin:6px 0;}
+
+    .sog-bar{grid-column:1/-1;background:#111826;border:1px solid #223047;
+      border-radius:10px;padding:6px 12px;display:flex;flex-direction:column;gap:2px;}
+    .sog-bar .sog-label{font-size:10px;opacity:0.6;}
+    #sogCanvas{width:100%;height:54px;border-radius:4px;cursor:crosshair;display:block;}
   </style>
 </head>
+<body>
 
-<body class="mode-large">
-  <div class="wrap">
-    <!-- Header: file inputs only -->
-    <div class="header">
-      <div class="headerLeft">
-        <div class="block">
-          <label>Video (local)</label>
-          <input id="videoFile" type="file" accept="video/*" />
-        </div>
+<!-- ================================================================ -->
+<!--                       SETUP PHASE                                -->
+<!-- ================================================================ -->
+<div id="setupPhase">
+  <h1>Dual Athlete GoPro + GPS Viewer</h1>
+  <p class="sub">Self-contained browser-based viewer. No Python, no ExifTool required.<br>
+    Parses GoPro GPMF binary GPS directly from MP4 files in your browser.</p>
 
-        <div class="block">
-          <label>CSV (Vakaros or RED)</label>
-          <input id="csvFile" type="file" accept=".csv,text/csv" />
-        </div>
-
-        <div class="block" style="min-width:220px;">
-          <label>Quick</label>
-          <div class="row">
-            <button id="btnFit" title="Fit map to track">Fit track</button>
-          </div>
-        </div>
-      </div>
-
-      <!-- no settings here anymore -->
-      <div style="display:flex;gap:10px;align-items:flex-end;">
-        <div class="block" style="min-width:170px;">
-          <label>Layout</label>
-          <button id="btnToggleMode" title="Toggle between large (side-by-side) and small (stacked) layouts">Small mode</button>
-        </div>
-      </div>
+  <!-- MP4 Files -->
+  <div class="card">
+    <h2>1. GoPro MP4 Files</h2>
+    <p class="desc">Select or drag & drop ALL GoPro MP4 files (both athletes). Multiple cameras supported.</p>
+    <div class="drop-zone" id="dzMp4">
+      <div>Click or drag MP4 files here</div>
+      <div class="hint">Supports .MP4 files from GoPro (Hero 5+)</div>
+      <input type="file" id="fMp4" accept="video/mp4,.mp4" multiple>
     </div>
+    <div class="file-list" id="flMp4"></div>
+    <div class="progress-bar" id="pbMp4"><div class="fill" id="pbMp4Fill"></div></div>
+  </div>
 
-    <div id="notice" class="notice"></div>
-
-    <div class="content">
-      <div class="card">
-        <div class="cardTitle">Video</div>
-        <div class="tile">
-          <video id="video" controls playsinline></video>
-        </div>
-      </div>
-
-      <div class="card">
-        <div class="cardTitle">GPS track</div>
-        <div class="tile">
-          <div id="map"></div>
-        </div>
-      </div>
+  <!-- CSV Files -->
+  <div class="card">
+    <h2>2. GPS / Vakaros CSV Files (optional)</h2>
+    <p class="desc">Select 0–2 CSV files (Vakaros or Sensor Logger format). Used for higher-quality tracks and SOG.</p>
+    <div class="drop-zone" id="dzCsv">
+      <div>Click or drag CSV files here</div>
+      <div class="hint">Vakaros: timestamp, latitude, longitude — Sensor: iso_time, lat, lon</div>
+      <input type="file" id="fCsv" accept=".csv,text/csv" multiple>
     </div>
+    <div class="file-list" id="flCsv"></div>
+  </div>
 
-    <div class="chartCard">
-      <div class="topBar">
-        <div class="pill">SOG — drag to pan; red center scrub; marker follows</div>
-        <div class="pill">Map window: visible scrub range highlighted</div>
-      </div>
-
-      <div class="controlsRow">
-        <div class="left">
-          <button id="zoomIn" title="Zoom in">+</button>
-          <button id="zoomOut" title="Zoom out">−</button>
-          <button id="centerZero" title="Put center exactly at t=0">Center t=0</button>
-        </div>
-
-        <div class="center">
-          <button id="back10" title="Back 10 seconds">−10s</button>
-          <button id="playPause" title="Play / Pause">Play</button>
-          <button id="fwd10" title="Forward 10 seconds">+10s</button>
-        </div>
-
-        <div class="right"></div>
-      </div>
-
-      <div class="status">
-        <span>center t: <b id="tRead">—</b></span>
-        <span>SOG: <b id="sogRead">—</b> kt</span>
-        <span>COG: <b id="cogRead">—</b>°</span>
-        <span>HDG: <b id="hdgRead">—</b>°</span>
-        <span>Heel: <b id="heelRead">—</b>°</span>
-        <span>Trim: <b id="trimRead">—</b>°</span>
-        <span>Torso: <b id="torsoRead">—</b>°</span>
-        <span>video t: <b id="vRead">—</b></span>
-        <span>video@center: <b id="inVidRead">—</b></span>
-      </div>
-
-      <div id="chartWrap">
-        <canvas id="chart"></canvas>
-      </div>
-
-      <div id="videoTimelineWrap">
-        <canvas id="videoTimeline"></canvas>
-      </div>
-
-      <!-- Settings moved BELOW scrub line -->
-      <div class="settingsPanel">
-        <div class="block">
-          <label>Sync offset (H:M:S)</label>
-          <div class="row">
-            <input id="offsetHours" type="number" step="1" value="0" style="width:70px;" placeholder="H" title="Hours" />
-            <span style="color:var(--muted);">:</span>
-            <input id="offsetMin" type="number" step="1" value="0" style="width:70px;" placeholder="M" title="Minutes" />
-            <span style="color:var(--muted);">:</span>
-            <input id="offsetSec" type="number" step="0.1" value="0" style="width:70px;" placeholder="S" title="Seconds" />
-            <button id="btnSetOffset" title="Offset = centerTime - currentVideoTime">Set from center</button>
-            <button id="btnAutoAlign" title="Auto-align using CSV start time and video start time (best effort)">Auto-align</button>
-          </div>
-          <div class="hint">GPS elapsed = videoTime + offset. Offset is defined from the <b>start</b> of the video.</div>
-        </div>
-
-        <div class="block">
-          <label>Timezone shift (hours)</label>
-          <div class="row">
-            <button id="tzMinus">−1h</button>
-            <input id="tzShiftHours" type="number" step="1" value="0" style="width:90px;" />
-            <button id="tzPlus">+1h</button>
-            <button id="tzApply" title="Apply hour shift to auto alignment (common when timestamps differ by timezone)">Apply</button>
-          </div>
-          <div class="hint">If auto-align is off by whole hours, set this and Apply.</div>
-        </div>
-
-        <div class="block">
-          <label>Version</label>
-          <div class="mini">v0.9 — video offset from start + TZ shift + map window highlight</div>
-        </div>
-
-        <div class="block">
-          <label>Layout</label>
-          <div class="mini">Use the top-right button to switch Large/Small mode.</div>
-        </div>
-      </div>
-
-      <div class="small">
-        The chart includes a padded “null” segment before t=0 so you can scrub the red center line to the very first data point.
-      </div>
+  <!-- Settings -->
+  <div class="card">
+    <h2>3. Settings</h2>
+    <div class="settings-row">
+      <label>GPS thinning interval:
+        <select id="sThin">
+          <option value="1">1 s (dense)</option>
+          <option value="5">5 s</option>
+          <option value="15">15 s</option>
+          <option value="30">30 s</option>
+          <option value="60" selected>60 s (default)</option>
+          <option value="120">2 min</option>
+          <option value="180">3 min</option>
+          <option value="300">5 min</option>
+        </select>
+      </label>
+      <label title="Maximum plausible speed in m/s for outlier filtering">
+        Max speed filter:
+        <input type="number" id="sMaxSpd" value="25" min="1" max="200" style="width:60px;"> m/s
+      </label>
     </div>
   </div>
 
-  <script>
-    // =========================
-    // Helpers
-    // =========================
-    function clamp(v,a,b){ return Math.max(a, Math.min(b, v)); }
-    function toNum(x){ const v = parseFloat(x); return Number.isFinite(v) ? v : NaN; }
-    function splitCSVLine(line){ return line.split(",").map(s => s.trim()); }
+  <!-- Process -->
+  <div class="card">
+    <h2>4. Process &amp; Launch</h2>
+    <div class="setup-row">
+      <button class="btn primary" id="btnProcess" disabled>Process Files</button>
+      <span class="small" id="statusText" style="color:#667788;">Add MP4 files to begin.</span>
+    </div>
+    <div class="log" id="logBox" style="display:none;"></div>
+    <div class="assignment" id="assignBox" style="display:none;"></div>
+    <div class="setup-row" style="display:none;" id="launchRow">
+      <button class="btn primary" id="btnLaunch">Launch Viewer</button>
+    </div>
+  </div>
+</div>
 
-    function parseISOish(ts) {
-      if (!ts) return null;
-      const fixed = ts.replace(/([+-]\d{2})(\d{2})$/, "$1:$2");
-      const d = new Date(fixed);
-      return isNaN(d.getTime()) ? null : d;
-    }
 
-    function fmtClock(sec){
-      if (!Number.isFinite(sec)) return "—";
-      sec = Math.max(0, sec);
-      const h = Math.floor(sec/3600);
-      const m = Math.floor((sec%3600)/60);
-      const s = Math.floor(sec%60);
-      const ms = Math.floor((sec - Math.floor(sec))*1000);
-      if (h>0) return `${h}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}.${String(ms).padStart(3,'0')}`;
-      return `${m}:${String(s).padStart(2,'0')}.${String(ms).padStart(3,'0')}`;
-    }
+<!-- ================================================================ -->
+<!--                       VIEWER PHASE                               -->
+<!-- ================================================================ -->
+<div id="viewerPhase">
+  <div class="wrap">
+    <!-- LEFT PANEL -->
+    <div class="left panel">
+      <div class="ctrl-row">
+        <button id="bk10">-10 s</button>
+        <button id="ppBtn">&#9654; Play</button>
+        <button id="fw10">+10 s</button>
+        <input id="scrub" type="range" min="0" max="0" step="0.1" value="0">
+        <span class="mono small" id="tDisp">0:00 / 0:00</span>
+        <button id="btnBack" title="Back to setup" style="font-size:11px;padding:4px 10px;">&#x2190; Setup</button>
+      </div>
+      <div class="stats-row mono small">
+        <span style="color:#ef5350;">Clips&#x2081;: <code id="nc1">0</code></span>
+        <span style="color:#ef9a9a;">Vak&#x2081;: <code id="nk1">0</code></span>
+        <span style="color:#42a5f5;">Clips&#x2082;: <code id="nc2">0</code></span>
+        <span style="color:#90caf9;">Vak&#x2082;: <code id="nk2">0</code></span>
+      </div>
+      <div class="vid-stack">
+        <div class="vid-box red-frame" id="vc1">
+          <div class="blk" id="blk1"><span>No data at this time</span></div>
+        </div>
+        <div class="vid-box blue-frame" id="vc2">
+          <div class="blk" id="blk2"><span>No data at this time</span></div>
+        </div>
+      </div>
+    </div>
 
-    function showNotice(msg){
-      const el = document.getElementById("notice");
-      if (!msg){ el.style.display="none"; el.textContent=""; return; }
-      el.textContent = msg;
-      el.style.display = "block";
-    }
+    <!-- RIGHT PANEL (MAP) -->
+    <div class="panel nopad">
+      <div id="mapW">
+        <div id="map"></div>
+        <div class="overlay mono">
+          <div>UTC: <code id="oUTC">-</code></div>
+          <hr>
+          <div style="color:#ef5350;font-weight:bold;">Athlete 1 (Red)</div>
+          <div>Clip: <code id="o1clip">-</code></div>
+          <div>GPS: <code id="o1gps">-</code></div>
+          <div>Vakaros: <code id="o1vak">-</code></div>
+          <hr>
+          <div style="color:#42a5f5;font-weight:bold;" id="o2hdr">Athlete 2 (Blue)</div>
+          <div id="o2clipRow">Clip: <code id="o2clip">-</code></div>
+          <div id="o2gpsRow">GPS: <code id="o2gps">-</code></div>
+          <div id="o2vakRow">Vakaros: <code id="o2vak">-</code></div>
+          <hr>
+          <div class="small" style="opacity:0.7;">
+            Solid lines = Vakaros tracks.<br>
+            Dashed lines = GoPro GPS tracks.
+          </div>
+        </div>
+      </div>
+    </div>
 
-    // =========================
-    // State
-    // =========================
-    const state = {
-      points: [],
-      t0Abs: null,
-      duration: 0,
+    <!-- SOG timeseries -->
+    <div class="sog-bar" id="sogBar" style="display:none;">
+      <div style="display:flex;align-items:center;gap:8px;">
+        <span class="sog-label mono" style="flex:1;">SOG (m/s) — <span style="color:#ef5350;">Red</span> / <span style="color:#42a5f5;">Blue</span> — click or drag to scrub</span>
+        <button id="sogZoomIn" title="Zoom in" style="padding:2px 8px;">+</button>
+        <button id="sogZoomOut" title="Zoom out" style="padding:2px 8px;">&minus;</button>
+        <button id="sogZoomReset" title="Reset zoom" style="padding:2px 8px;font-size:10px;">1:1</button>
+      </div>
+      <canvas id="sogCanvas" height="54"></canvas>
+    </div>
 
-      padStartSec: 3.0,
-      padNullSteps: 20,
+    <!-- Bottom bar -->
+    <div class="bottom-bar">
+      <div class="file-row-v">
+        <label style="margin-left:18px;cursor:pointer;user-select:none;">
+          <input type="checkbox" id="hideGoPro"> Hide GoPro GPS tracks
+        </label>
+        <label style="margin-left:18px;cursor:pointer;user-select:none;">
+          <input type="checkbox" id="fadeTracks"> Fade tracks (±60 s window)
+        </label>
+        <label style="margin-left:18px;cursor:pointer;user-select:none;">
+          <input type="checkbox" id="poseToggle"> Pose detection
+        </label>
+      </div>
+      <div class="fstat mono" id="fsAll" style="flex-basis:100%;"></div>
+    </div>
+  </div>
+</div>
 
-      centerTe: 0,
-      spanSec: 60,
-
-      chart: null,
-
-      // map layers
-      polyAll: null,
-      polyWindow: null,
-      marker: null,
-
-      // current visible window [wMin, wMax]
-      wMin: 0,
-      wMax: 0,
-
-      dragging: false,
-      dragStartX: 0,
-      dragStartCenter: 0,
-
-      vLoaded: false,
-      vDuration: NaN,
-
-      // Video "start time" (best-effort from file lastModified)
-      videoStartAbsMs: null,
-
-      playing: false,
-      playLastTs: 0,
-
-      lastIdx: 0,
-      raf: null
+<script>
+// ================================================================
+//                    GPS PARSER (inline)
+// ================================================================
+// Extracts GPS with real UTC timestamps from GoPro GPMF binary stream.
+// Reads GPSU tags (ASCII UTC datetime) for accurate epoch timestamps
+// and computes video-time (t) from file byte position.
+class GoProGpsParser {
+  constructor() {
+    this.TAGS = {
+      GPS5: [0x47, 0x50, 0x53, 0x35],  // lat,lon,alt,spd2d,spd3d
+      GPS9: [0x47, 0x50, 0x53, 0x39],  // higher precision + embedded UTC
+      SCAL: [0x53, 0x43, 0x41, 0x4c],  // scaling factor
+      GPSU: [0x47, 0x50, 0x53, 0x55],  // UTC timestamp string
+      GPSF: [0x47, 0x50, 0x53, 0x46],  // GPS fix (2=2D, 3=3D)
+      GPSP: [0x47, 0x50, 0x53, 0x50],  // GPS precision (DOP * 100)
     };
+  }
 
-    // =========================
-    // DOM
-    // =========================
-    const bodyEl = document.body;
-    const btnToggleMode = document.getElementById("btnToggleMode");
-
-    const videoEl = document.getElementById("video");
-    const videoFileEl = document.getElementById("videoFile");
-    const csvFileEl = document.getElementById("csvFile");
-
-    const offsetHoursEl = document.getElementById("offsetHours");
-    const offsetMinEl = document.getElementById("offsetMin");
-    const offsetEl = document.getElementById("offsetSec");
-    const btnAutoAlign = document.getElementById("btnAutoAlign");
-    const btnSetOffset = document.getElementById("btnSetOffset");
-
-    const tzShiftEl = document.getElementById("tzShiftHours");
-    const tzMinusBtn = document.getElementById("tzMinus");
-    const tzPlusBtn = document.getElementById("tzPlus");
-    const tzApplyBtn = document.getElementById("tzApply");
-
-    const btnFit = document.getElementById("btnFit");
-
-    const zoomInBtn = document.getElementById("zoomIn");
-    const zoomOutBtn = document.getElementById("zoomOut");
-    const centerZeroBtn = document.getElementById("centerZero");
-
-    const back10Btn = document.getElementById("back10");
-    const playPauseBtn = document.getElementById("playPause");
-    const fwd10Btn = document.getElementById("fwd10");
-
-    const tRead = document.getElementById("tRead");
-    const sogRead = document.getElementById("sogRead");
-    const cogRead = document.getElementById("cogRead");
-    const hdgRead = document.getElementById("hdgRead");
-    const heelRead = document.getElementById("heelRead");
-    const trimRead = document.getElementById("trimRead");
-    const torsoRead = document.getElementById("torsoRead");
-    const vRead = document.getElementById("vRead");
-    const inVidRead = document.getElementById("inVidRead");
-
-    const chartCanvas = document.getElementById("chart");
-    const videoTimeline = document.getElementById("videoTimeline");
-    const vtCtx = videoTimeline.getContext("2d");
-
-    // =========================
-    // Layout toggle
-    // =========================
-    function setModeSmall(on){
-      if (on){
-        bodyEl.classList.add("mode-small");
-        bodyEl.classList.remove("mode-large-forced");
-        btnToggleMode.textContent = "Large mode";
-      } else {
-        bodyEl.classList.remove("mode-small");
-        bodyEl.classList.add("mode-large-forced");
-        btnToggleMode.textContent = "Small mode";
-      }
-      setTimeout(()=>{ try{ map.invalidateSize(); }catch(e){} }, 60);
-      setTimeout(()=>{ applyWindow(true); drawVideoTimeline(); }, 80);
+  /**
+   * Parse a GPSU ASCII timestamp → epoch seconds.
+   * GoPro always uses "YYMMDDHHMMSS.SSS" (16 chars, 2-digit year).
+   * We also handle the rare "YYYYMMDDHHMMSS.SSS" (18+ chars) variant.
+   */
+  _parseGPSU(bytes, offset, length) {
+    let s = '';
+    for (let i = 0; i < length; i++) {
+      const c = bytes[offset + i];
+      if (c === 0) break;
+      s += String.fromCharCode(c);
     }
-    btnToggleMode.addEventListener("click", () => {
-      const isSmall = bodyEl.classList.contains("mode-small");
-      setModeSmall(!isSmall);
-    });
-    btnToggleMode.textContent = "Small mode";
+    s = s.trim();
+    if (s.length < 14) return NaN;
 
-    // =========================
-    // Map
-    // =========================
-    const map = L.map("map", { zoomControl: true });
-    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-      maxZoom: 19,
-      attribution: "&copy; OpenStreetMap contributors"
-    }).addTo(map);
-    map.setView([0,0], 2);
+    let year, month, day, hour, min, sec;
+    // Distinguish by length: GoPro GPSU is always 16 chars (2-digit year).
+    // Only treat as 4-digit year if 18+ usable chars AND first 4 parse as
+    // a plausible full year with valid month in positions 4-5.
+    const use4digit = s.length >= 18
+      && parseInt(s.substring(0, 4)) >= 2000
+      && parseInt(s.substring(4, 6)) >= 1
+      && parseInt(s.substring(4, 6)) <= 12;
 
-    function fitTrack(){
-      const layer = state.polyAll;
-      if (!layer) return;
-      const b = layer.getBounds();
-      if (b.isValid()) map.fitBounds(b.pad(0.1));
+    if (use4digit) {
+      // YYYYMMDDHHMMSS.SSS
+      year  = parseInt(s.substring(0, 4));
+      month = parseInt(s.substring(4, 6));
+      day   = parseInt(s.substring(6, 8));
+      hour  = parseInt(s.substring(8, 10));
+      min   = parseInt(s.substring(10, 12));
+      sec   = parseFloat(s.substring(12));
+    } else {
+      // YYMMDDHHMMSS.SSS (standard GoPro format)
+      year  = 2000 + parseInt(s.substring(0, 2));
+      month = parseInt(s.substring(2, 4));
+      day   = parseInt(s.substring(4, 6));
+      hour  = parseInt(s.substring(6, 8));
+      min   = parseInt(s.substring(8, 10));
+      sec   = parseFloat(s.substring(10));
     }
+    if (isNaN(year) || isNaN(month) || isNaN(day) || isNaN(hour) || isNaN(min) || isNaN(sec)) return NaN;
+    if (month < 1 || month > 12 || day < 1 || day > 31) return NaN;
+    const d = new Date(Date.UTC(year, month - 1, day, hour, min, Math.floor(sec),
+                                Math.round((sec % 1) * 1000)));
+    return d.getTime() / 1000;
+  }
 
-    // =========================
-    // Chart
-    // =========================
-    const centerLinePlugin = {
-      id: "centerLine",
-      afterDatasetsDraw(chart){
-        const yScale = chart.scales.y;
-        if (!yScale) return;
-        const x = (chart.chartArea.left + chart.chartArea.right) / 2;
-        const ctx = chart.ctx;
-        ctx.save();
-        ctx.beginPath();
-        ctx.lineWidth = 2;
-        ctx.strokeStyle = "#ff3b30";
-        ctx.moveTo(x, yScale.top);
-        ctx.lineTo(x, yScale.bottom);
-        ctx.stroke();
-        ctx.restore();
-      }
-    };
-
-    function buildChartDataset(){
-      const arr = [];
-      const steps = Math.max(6, state.padNullSteps);
-      const pad = state.padStartSec;
-
-      for (let i=steps; i>=1; i--){
-        const x = -pad * (i/steps);
-        arr.push({ x, y: null });
-      }
-      arr.push({ x: 0, y: null });
-
-      for (const p of state.points){
-        arr.push({ x: p.te, y: p.sogKt });
-      }
-      return arr;
-    }
-
-    function makeChart(){
-      const ctx = chartCanvas.getContext("2d");
-      const data = buildChartDataset();
-
-      if (state.chart) state.chart.destroy();
-
-      state.chart = new Chart(ctx, {
-        type: "line",
-        data: { datasets: [{ data, borderWidth: 2, pointRadius: 0, tension: 0.15, spanGaps: false }] },
-        options: {
-          responsive: true,
-          maintainAspectRatio: false,
-          animation: false,
-          events: [],
-          plugins: { legend: { display: false } },
-          scales: {
-            x: {
-              type: "linear",
-              title: { display: true, text: "Time (s from recording start)" },
-              grid: { color: "rgba(255,255,255,0.08)" },
-              ticks: { color: "rgba(255,255,255,0.75)" }
-            },
-            y: {
-              title: { display: true, text: "Knots" },
-              grid: { color: "rgba(255,255,255,0.08)" },
-              ticks: { color: "rgba(255,255,255,0.75)" }
-            }
+  /**
+   * Search backwards from a GPS tag to find the nearest GPSU timestamp.
+   * GPSU usually appears before GPS5/GPS9 in the same GPMF stream.
+   */
+  _findGPSU(bytes, currentIndex) {
+    const searchRange = 512;
+    const start = Math.max(0, currentIndex - searchRange);
+    for (let j = currentIndex; j > start; j--) {
+      if (this._isMatch(bytes, j, this.TAGS.GPSU)) {
+        // GPSU header: 4 bytes tag, 1 byte type, 1 byte size, 2 bytes count
+        const strSize = bytes[j + 5];
+        const strCount = (bytes[j + 6] << 8) | bytes[j + 7];
+        const totalLen = strSize * strCount;
+        if (totalLen >= 14 && totalLen <= 32 && j + 8 + totalLen <= bytes.length) {
+          const ts = this._parseGPSU(bytes, j + 8, totalLen);
+          if (!isNaN(ts) && ts > 946684800) { // After 2000-01-01
+            return ts;
           }
-        },
-        plugins: [centerLinePlugin]
+        }
+      }
+    }
+    return NaN;
+  }
+
+  /**
+   * For GPS9: extract UTC epoch from embedded days-since-2000 + time fields.
+   * GPS9 sample layout (per sample, 9 int32s):
+   *   lat, lon, alt, speed2d, speed3d, days_since_2000, seconds_since_midnight, DOP, fix
+   * But sizes vary by firmware. We try the common 36-byte layout.
+   */
+  _parseGPS9Time(view, dataStart, sampleSize) {
+    try {
+      if (sampleSize >= 36) {
+        // Try reading days and secs at offsets 20,24 (int32 each, pre-scale)
+        const rawDays = view.getInt32(dataStart + 20);
+        const rawSecs = view.getInt32(dataStart + 24);
+        // Typically days < 20000 and secs < 100000000
+        if (rawDays > 0 && rawDays < 20000 && rawSecs >= 0) {
+          // SCAL for time fields is usually [10000000, 10000000, ...] or similar
+          // We'll compute: epoch = Date.UTC(2000,0,1) + days*86400 + secs/scale
+          // But we don't know the exact scale here. If raw secs > 86400,
+          // it's likely scaled. Heuristic: if > 100000, assume scale of 1000
+          const epoch2000 = 946684800; // 2000-01-01 UTC in epoch seconds
+          let secVal = rawSecs;
+          if (secVal > 864000) secVal = secVal / 1000; // likely milliseconds
+          if (secVal > 86400) secVal = secVal / 1000;  // still too big
+          if (secVal <= 86400) {
+            return epoch2000 + rawDays * 86400 + secVal;
+          }
+        }
+      }
+    } catch (e) {}
+    return NaN;
+  }
+
+  async extract(file, intervalSeconds = 5, onProgress = null) {
+    const CHUNK_SIZE = 2 * 1024 * 1024; // 2MB chunks
+    let offset = 0;
+    let points = [];
+    let lastRecordedTs = -Infinity;
+
+    // Fallback estimated timeline (matches original parser behaviour)
+    const estimatedDuration = 660; // ~11 min for a standard 4GB GoPro chapter
+    const baseTs = (file.lastModified / 1000) - estimatedDuration;
+    let usedFallbackTs = false;
+
+    // Speed optimisation: estimate bytes-per-second of video content so we
+    // can skip large file regions when the user picks a long interval.
+    // GoPro writes ~6MB/s at high bitrates.  After recording a point we
+    // jump forward by (intervalSeconds * bytesPerSecond) minus an overlap.
+    const bytesPerSec = file.size / Math.max(estimatedDuration, 60);
+    const skipBytes = Math.max(0, Math.floor(intervalSeconds * bytesPerSec * 0.85));
+    let skipUntilOffset = 0; // absolute file offset to skip to
+
+    while (offset < file.size) {
+      // Skip ahead if optimisation says we can
+      if (offset < skipUntilOffset) {
+        const jump = Math.min(skipUntilOffset, file.size) - offset;
+        offset = Math.min(skipUntilOffset, file.size);
+        if (onProgress) onProgress(Math.min(Math.round((offset / file.size) * 100), 100));
+        continue;
+      }
+      const end = Math.min(offset + CHUNK_SIZE, file.size);
+      const slice = file.slice(offset, end);
+      const buffer = await slice.arrayBuffer();
+      const view = new DataView(buffer);
+      const bytes = new Uint8Array(buffer);
+
+      for (let i = 0; i < bytes.length - 30; i++) {
+        if (this._isMatch(bytes, i, this.TAGS.GPS5) || this._isMatch(bytes, i, this.TAGS.GPS9)) {
+          const isGPS9 = bytes[i + 3] === 0x39;
+          const sampleSize = bytes[i + 5];
+          const sampleCount = (bytes[i + 6] << 8) | bytes[i + 7];
+          const dataStart = i + 8;
+          const dataLen = sampleSize * sampleCount;
+
+          // Bounds check
+          if (dataStart + dataLen > bytes.length) { i += 7; continue; }
+
+          // Find scale
+          let scale = this._findScale(bytes, view, i);
+
+          // Find UTC timestamp from GPSU tag (primary method)
+          let utcEpoch = this._findGPSU(bytes, i);
+
+          // Fallback: GPS9 embedded time
+          if (isNaN(utcEpoch) && isGPS9 && sampleSize >= 36) {
+            utcEpoch = this._parseGPS9Time(view, dataStart, sampleSize);
+          }
+
+          // Fallback: estimated timestamp from file progress (always works)
+          if (isNaN(utcEpoch) || utcEpoch < 946684800) {
+            const progress = (offset + i) / file.size;
+            utcEpoch = baseTs + progress * estimatedDuration;
+            usedFallbackTs = true;
+          }
+
+          // File progress (for computing video time later)
+          const fileProgress = (offset + i) / file.size;
+
+          // Throttle by interval
+          if (utcEpoch - lastRecordedTs >= intervalSeconds) {
+            try {
+              const lat = view.getInt32(dataStart) / scale;
+              const lon = view.getInt32(dataStart + 4) / scale;
+              if (Math.abs(lat) > 0.01 && Math.abs(lat) <= 90 && Math.abs(lon) <= 180) {
+                points.push({
+                  lat: lat,
+                  lon: lon,
+                  ts: utcEpoch,
+                  fileProgress: fileProgress,
+                  precision: isGPS9 ? 'high' : 'standard'
+                });
+                lastRecordedTs = utcEpoch;
+                // Schedule skip to avoid scanning bytes we don't need
+                if (skipBytes > 0) {
+                  skipUntilOffset = offset + i + skipBytes;
+                }
+              }
+            } catch (e) {}
+          }
+
+          // Skip past data block
+          i += dataLen + 7;
+        }
+      }
+
+      offset += (CHUNK_SIZE - 512); // Overlap to catch split tags
+      if (onProgress) {
+        onProgress(Math.min(Math.round((offset / file.size) * 100), 100));
+      }
+      // Yield to UI thread periodically
+      if (offset % (CHUNK_SIZE * 4) === 0) {
+        await new Promise(r => setTimeout(r, 0));
+      }
+    }
+
+    // Sort by timestamp (should be mostly sorted already)
+    points.sort((a, b) => a.ts - b.ts);
+
+    // Tag result with timestamp source info
+    points._usedFallbackTs = usedFallbackTs;
+    return points;
+  }
+
+  _isMatch(bytes, index, pattern) {
+    return bytes[index] === pattern[0] &&
+           bytes[index + 1] === pattern[1] &&
+           bytes[index + 2] === pattern[2] &&
+           bytes[index + 3] === pattern[3];
+  }
+
+  _findScale(bytes, view, currentIndex) {
+    const searchRange = 256;
+    const start = Math.max(0, currentIndex - searchRange);
+    for (let j = currentIndex; j > start; j--) {
+      if (this._isMatch(bytes, j, this.TAGS.SCAL)) {
+        const val = view.getInt32(j + 8);
+        if (val > 0 && val < 1e12) return val;
+      }
+    }
+    return 10000000; // Default GoPro scale (10^7)
+  }
+}
+
+// ================================================================
+//                    GPS OUTLIER FILTER
+// ================================================================
+const MAX_PLAUSIBLE_SPEED_MS = 25.0;
+
+function haversineM(lat1, lon1, lat2, lon2) {
+  const dlat = (lat2 - lat1) * 111320;
+  const dlon = (lon2 - lon1) * 111320 * Math.cos(((lat1 + lat2) / 2) * Math.PI / 180);
+  return Math.sqrt(dlat * dlat + dlon * dlon);
+}
+
+function filterGpsOutliers(pts, maxSpeed = MAX_PLAUSIBLE_SPEED_MS, maxPasses = 3) {
+  if (pts.length < 3) return pts;
+  for (let pass = 0; pass < maxPasses; pass++) {
+    const n = pts.length;
+    if (n < 3) break;
+    const keep = new Array(n).fill(true);
+
+    // Interior points
+    for (let i = 1; i < n - 1; i++) {
+      let dt_ab = Math.abs(pts[i].ts - pts[i-1].ts); if (dt_ab < 0.1) dt_ab = 0.1;
+      let dt_bc = Math.abs(pts[i+1].ts - pts[i].ts); if (dt_bc < 0.1) dt_bc = 0.1;
+      const d_ab = haversineM(pts[i-1].lat, pts[i-1].lon, pts[i].lat, pts[i].lon);
+      const d_bc = haversineM(pts[i].lat, pts[i].lon, pts[i+1].lat, pts[i+1].lon);
+      if (d_ab / dt_ab > maxSpeed && d_bc / dt_bc > maxSpeed) keep[i] = false;
+    }
+    // Edge: first
+    if (n >= 2) {
+      let dt = Math.abs(pts[1].ts - pts[0].ts); if (dt < 0.1) dt = 0.1;
+      if (haversineM(pts[0].lat, pts[0].lon, pts[1].lat, pts[1].lon) / dt > maxSpeed) keep[0] = false;
+    }
+    // Edge: last
+    if (n >= 2) {
+      let dt = Math.abs(pts[n-1].ts - pts[n-2].ts); if (dt < 0.1) dt = 0.1;
+      if (haversineM(pts[n-2].lat, pts[n-2].lon, pts[n-1].lat, pts[n-1].lon) / dt > maxSpeed) keep[n-1] = false;
+    }
+    const newPts = pts.filter((_, i) => keep[i]);
+    if (newPts.length === pts.length) break;
+    pts = newPts;
+  }
+  return pts;
+}
+
+function thinGpsTrack(pts, intervalS = 5) {
+  if (pts.length <= 2 || intervalS <= 0) return pts;
+  const out = [pts[0]];
+  let lastTs = pts[0].ts;
+  for (let i = 1; i < pts.length - 1; i++) {
+    if (pts[i].ts - lastTs >= intervalS) {
+      out.push(pts[i]);
+      lastTs = pts[i].ts;
+    }
+  }
+  out.push(pts[pts.length - 1]);
+  return out;
+}
+
+// ================================================================
+//                    VAKAROS / CSV PARSER
+// ================================================================
+function parseVakarosCsv(text) {
+  const lines = text.split(/\r?\n/);
+  if (lines.length < 2) return { track: [] };
+
+  // Parse header
+  const header = lines[0].split(',').map(h => h.trim());
+  const colMap = {};
+  header.forEach((h, i) => { colMap[h.toLowerCase()] = i; });
+
+  const has = (...names) => names.every(n => n in colMap);
+
+  // Detect SOG column
+  let cSog = null;
+  for (const sn of ['sog_mps', 'sog']) {
+    if (sn in colMap) { cSog = colMap[sn]; break; }
+  }
+
+  // Detect format
+  let cTs, cLat, cLon, fmtA;
+  if (has('timestamp', 'latitude', 'longitude')) {
+    cTs = colMap['timestamp'];
+    cLat = colMap['latitude'];
+    cLon = colMap['longitude'];
+    fmtA = true;
+  } else if (has('lat', 'lon') && (has('iso_time') || has('timestamp_ms'))) {
+    cLat = colMap['lat'];
+    cLon = colMap['lon'];
+    cTs = ('iso_time' in colMap) ? colMap['iso_time'] : colMap['timestamp_ms'];
+    fmtA = false;
+  } else {
+    throw new Error('CSV columns not recognised. Expected {timestamp,latitude,longitude} or {iso_time/timestamp_ms,lat,lon}. Found: ' + header.join(', '));
+  }
+
+  function parseTsA(s) {
+    s = s.trim();
+    const d = new Date(s);
+    if (!isNaN(d.getTime())) return d.getTime() / 1000;
+    throw new Error('bad ts: ' + s);
+  }
+  function parseTsB(s) {
+    s = s.trim();
+    if (!s) throw new Error('empty');
+    const n = Number(s);
+    if (!isNaN(n) && s.length > 5) return n / 1000; // epoch ms
+    const d = new Date(s);
+    if (!isNaN(d.getTime())) return d.getTime() / 1000;
+    throw new Error('bad ts: ' + s);
+  }
+  const parseFn = fmtA ? parseTsA : parseTsB;
+
+  const track = [];
+  for (let i = 1; i < lines.length; i++) {
+    const line = lines[i].trim();
+    if (!line) continue;
+    const parts = line.split(',');
+    if (parts.length <= Math.max(cTs, cLat, cLon)) continue;
+    try {
+      const ts = parseFn(parts[cTs]);
+      const lat = parseFloat(parts[cLat]);
+      const lon = parseFloat(parts[cLon]);
+      if (isNaN(lat) || isNaN(lon) || lat < -90 || lat > 90 || lon < -180 || lon > 180) continue;
+      const pt = { lat, lon, ts };
+      if (cSog !== null && parts.length > cSog) {
+        const sog = parseFloat(parts[cSog]);
+        pt.sog = isNaN(sog) ? null : sog;
+      }
+      track.push(pt);
+    } catch (e) { continue; }
+  }
+  track.sort((a, b) => a.ts - b.ts);
+  return { track };
+}
+
+function readFileText(file) {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => resolve(r.result);
+    r.onerror = () => reject(r.error);
+    r.readAsText(file);
+  });
+}
+
+// ================================================================
+//                    CAMERA GROUPING & MATCHING
+// ================================================================
+function cameraId(name) {
+  const stem = name.replace(/\.[^.]+$/, '');
+  return stem.length >= 4 ? stem.slice(-4) : stem;
+}
+
+function camDistToCsv(camGrp, csvEntry) {
+  const csvEpochs = csvEntry.epochs;
+  const csvTrack = csvEntry.track;
+  const n = csvEpochs.length;
+  if (n === 0) return Infinity;
+
+  let totalD = 0, count = 0;
+  for (const q of camGrp) {
+    for (const pt of q.track) {
+      // Binary search for nearest epoch
+      let lo = 0, hi = n;
+      while (lo < hi) { const m = (lo + hi) >> 1; csvEpochs[m] < pt.ts ? lo = m + 1 : hi = m; }
+      let bestI = Math.min(lo, n - 1);
+      if (lo > 0 && Math.abs(csvEpochs[lo - 1] - pt.ts) < Math.abs(csvEpochs[bestI] - pt.ts)) {
+        bestI = lo - 1;
+      }
+      if (Math.abs(csvEpochs[bestI] - pt.ts) > 300) continue;
+      const cp = csvTrack[bestI];
+      const dlat = (pt.lat - cp.lat) * 111320;
+      const dlon = (pt.lon - cp.lon) * 111320 * Math.cos(pt.lat * Math.PI / 180);
+      totalD += Math.sqrt(dlat * dlat + dlon * dlon);
+      count++;
+    }
+  }
+  return count > 0 ? totalD / count : Infinity;
+}
+
+// ================================================================
+//                    SETUP PHASE LOGIC
+// ================================================================
+const parser = new GoProGpsParser();
+let mp4Files = [];
+let csvFiles = [];
+let processedData = null; // {ds1, ds2, mp4FileMap}
+
+// File list management
+function renderFileList(files, container, type) {
+  container.innerHTML = '';
+  files.forEach((f, i) => {
+    const div = document.createElement('div');
+    div.className = 'f';
+    const sz = f.size > 1e9 ? (f.size / 1e9).toFixed(1) + ' GB' :
+               f.size > 1e6 ? (f.size / 1e6).toFixed(1) + ' MB' : (f.size / 1e3).toFixed(0) + ' KB';
+    div.innerHTML = `<span class="rm" data-idx="${i}" data-type="${type}">&times;</span> ${f.name} <span class="sz">(${sz})</span>`;
+    container.appendChild(div);
+  });
+  // Remove buttons
+  container.querySelectorAll('.rm').forEach(el => {
+    el.addEventListener('click', () => {
+      const idx = parseInt(el.dataset.idx);
+      if (el.dataset.type === 'mp4') { mp4Files.splice(idx, 1); renderFileList(mp4Files, flMp4, 'mp4'); }
+      else { csvFiles.splice(idx, 1); renderFileList(csvFiles, flCsv, 'csv'); }
+      updateStatus();
+    });
+  });
+}
+
+const flMp4 = document.getElementById('flMp4');
+const flCsv = document.getElementById('flCsv');
+const btnProcess = document.getElementById('btnProcess');
+const statusText = document.getElementById('statusText');
+const logBox = document.getElementById('logBox');
+const assignBox = document.getElementById('assignBox');
+const launchRow = document.getElementById('launchRow');
+
+function updateStatus() {
+  btnProcess.disabled = mp4Files.length === 0;
+  if (mp4Files.length === 0) statusText.textContent = 'Add MP4 files to begin.';
+  else statusText.textContent = `${mp4Files.length} MP4(s) + ${csvFiles.length} CSV(s) ready.`;
+}
+
+// Drop zones
+function setupDropZone(dzEl, inputEl, fileArray, listEl, type, accept) {
+  dzEl.addEventListener('click', () => inputEl.click());
+  dzEl.addEventListener('dragover', e => { e.preventDefault(); dzEl.classList.add('over'); });
+  dzEl.addEventListener('dragleave', () => dzEl.classList.remove('over'));
+  dzEl.addEventListener('drop', e => {
+    e.preventDefault(); dzEl.classList.remove('over');
+    const dt = e.dataTransfer;
+    const files = Array.from(dt.files).filter(f => {
+      const ext = f.name.split('.').pop().toLowerCase();
+      return accept.includes(ext);
+    });
+    addFiles(files, fileArray, listEl, type);
+  });
+  inputEl.addEventListener('change', e => {
+    addFiles(Array.from(e.target.files), fileArray, listEl, type);
+  });
+}
+
+function addFiles(newFiles, fileArray, listEl, type) {
+  const existing = new Set(fileArray.map(f => f.name + '_' + f.size));
+  for (const f of newFiles) {
+    if (!existing.has(f.name + '_' + f.size)) {
+      fileArray.push(f);
+      existing.add(f.name + '_' + f.size);
+    }
+  }
+  renderFileList(fileArray, listEl, type);
+  updateStatus();
+}
+
+setupDropZone(document.getElementById('dzMp4'), document.getElementById('fMp4'), mp4Files, flMp4, 'mp4', ['mp4']);
+setupDropZone(document.getElementById('dzCsv'), document.getElementById('fCsv'), csvFiles, flCsv, 'csv', ['csv']);
+
+// Log helper
+function log(msg, cls = '') {
+  logBox.style.display = '';
+  const span = document.createElement('span');
+  span.className = cls;
+  span.textContent = msg + '\n';
+  logBox.appendChild(span);
+  logBox.scrollTop = logBox.scrollHeight;
+}
+
+// ================================================================
+//                    PROCESS PIPELINE
+// ================================================================
+btnProcess.addEventListener('click', async () => {
+  if (mp4Files.length === 0) return;
+
+  btnProcess.disabled = true;
+  logBox.innerHTML = '';
+  logBox.style.display = '';
+  assignBox.style.display = 'none';
+  launchRow.style.display = 'none';
+
+  const thinInterval = parseInt(document.getElementById('sThin').value) || 5;
+  const maxSpeed = parseFloat(document.getElementById('sMaxSpd').value) || MAX_PLAUSIBLE_SPEED_MS;
+  const pbFill = document.getElementById('pbMp4Fill');
+
+  try {
+    // ---- Phase 1: Parse GPS from all MP4s ----
+    log(`Phase 1: Extracting GPS from ${mp4Files.length} MP4 file(s)...`, 'info');
+
+    const clipData = []; // {file, name, track}
+    for (let i = 0; i < mp4Files.length; i++) {
+      const file = mp4Files[i];
+      log(`  [${i+1}/${mp4Files.length}] ${file.name} (${(file.size/1e6).toFixed(0)} MB)...`);
+      pbFill.style.width = '0%';
+
+      const rawPts = await parser.extract(file, thinInterval, pct => {
+        pbFill.style.width = pct + '%';
+      });
+      pbFill.style.width = '100%';
+
+      // Outlier filter
+      let cleaned = filterGpsOutliers(rawPts, maxSpeed);
+      const removed = rawPts.length - cleaned.length;
+      if (removed > 0) log(`    Outlier filter: removed ${removed}/${rawPts.length} bad points`, 'warn');
+
+      if (cleaned.length < 2) {
+        log(`    ⚠ Skipped (only ${cleaned.length} GPS point(s))`, 'warn');
+        continue;
+      }
+
+      // Show UTC time range
+      const tsMin = cleaned[0].ts;
+      const tsMax = cleaned[cleaned.length - 1].ts;
+      const utcStart = new Date(tsMin * 1000).toISOString().substring(11, 19);
+      const utcEnd = new Date(tsMax * 1000).toISOString().substring(11, 19);
+      const tsNote = rawPts._usedFallbackTs ? ' (estimated)' : '';
+      log(`    ✓ ${cleaned.length} GPS points  (${utcStart} – ${utcEnd} UTC${tsNote})`, 'ok');
+      clipData.push({ file, name: file.name, track: cleaned });
+    }
+
+    if (clipData.length === 0) {
+      log('No clips with GPS found!', 'err');
+      btnProcess.disabled = false;
+      return;
+    }
+
+    // ---- Phase 2: Parse CSVs ----
+    const csvData = [];
+    for (const csvFile of csvFiles) {
+      log(`Parsing CSV: ${csvFile.name}...`, 'info');
+      try {
+        const text = await readFileText(csvFile);
+        const vak = parseVakarosCsv(text);
+        if (vak.track.length === 0) {
+          log(`  ⚠ No valid points in ${csvFile.name}`, 'warn');
+          continue;
+        }
+        const epochs = vak.track.map(p => p.ts);
+        csvData.push({ file: csvFile, name: csvFile.name, vak, track: vak.track, epochs });
+        log(`  ✓ ${vak.track.length} points`, 'ok');
+      } catch (e) {
+        log(`  ✗ ${csvFile.name}: ${e.message}`, 'err');
+      }
+    }
+
+    // ---- Phase 3: Group by camera ID ----
+    const camGroups = {};
+    for (const cd of clipData) {
+      const cid = cameraId(cd.name);
+      if (!camGroups[cid]) camGroups[cid] = [];
+      camGroups[cid].push(cd);
+    }
+    const camIds = Object.keys(camGroups);
+    const nCams = camIds.length;
+
+    log(`\nDetected ${nCams} camera group(s):`, 'info');
+    for (const cid of camIds) {
+      const names = camGroups[cid].map(c => c.name).join(', ');
+      log(`  Camera '${cid}': ${camGroups[cid].length} clip(s) — ${names}`);
+    }
+
+    // ---- Phase 4: Assignment ----
+    let g1Ids, g2Ids, vak1Data, vak2Data;
+
+    if (nCams < 2) {
+      if (csvData.length >= 2) {
+        // Single camera group but 2+ CSVs → split individual clips by
+        // proximity to each CSV to enable dual-athlete mode.
+        log(`Single camera group '${camIds[0]}' with ${csvData.length} CSVs — splitting clips by GPS proximity...`, 'info');
+        const clips = camGroups[camIds[0]];
+        const g1Clips = [], g2Clips = [];
+        for (const clip of clips) {
+          const fakeCam = [clip];
+          const d0 = camDistToCsv(fakeCam, csvData[0]);
+          const d1 = camDistToCsv(fakeCam, csvData[1]);
+          if (d0 <= d1) g1Clips.push(clip); else g2Clips.push(clip);
+          log(`    ${clip.name}: CSV1=${d0.toFixed(0)}m  CSV2=${d1.toFixed(0)}m → ${d0 <= d1 ? 'Athlete 1' : 'Athlete 2'}`);
+        }
+        // Build virtual camera groups
+        if (g1Clips.length > 0 && g2Clips.length > 0) {
+          const g1Id = camIds[0] + '_A', g2Id = camIds[0] + '_B';
+          camGroups[g1Id] = g1Clips;
+          camGroups[g2Id] = g2Clips;
+          g1Ids = [g1Id];
+          g2Ids = [g2Id];
+          vak1Data = csvData[0].vak;
+          vak2Data = csvData[1].vak;
+        } else {
+          // All clips are closer to one CSV — fall back to single mode
+          g1Ids = [...camIds];
+          g2Ids = [];
+          const dists = csvData.map(ce => camDistToCsv(camGroups[camIds[0]], ce));
+          const bestIdx = dists.indexOf(Math.min(...dists));
+          vak1Data = csvData[bestIdx].vak;
+          vak2Data = { track: [] };
+          log(`All clips match same CSV — single-athlete mode`, 'warn');
+        }
+      } else {
+        // Single camera group, 0-1 CSVs
+        g1Ids = [...camIds];
+        g2Ids = [];
+        vak1Data = csvData.length > 0 ? csvData[0].vak : { track: [] };
+        vak2Data = { track: [] };
+      }
+    } else if (csvData.length >= 2) {
+      // Multiple cameras, 2+ CSVs → optimal partition
+      log(`\nMatching cameras to CSVs...`, 'info');
+      const camDists = {};
+      for (const cid of camIds) {
+        camDists[cid] = csvData.map(ce => camDistToCsv(camGroups[cid], ce));
+        const distStr = csvData.map((ce, i) => `${ce.name}=${camDists[cid][i].toFixed(0)}m`).join('  ');
+        log(`  Camera '${cid}': ${distStr}`);
+      }
+
+      let bestCost = Infinity, bestMask = 0;
+      for (let mask = 1; mask < (1 << nCams) - 1; mask++) {
+        let cost = 0;
+        for (let bit = 0; bit < nCams; bit++) {
+          cost += camDists[camIds[bit]][(mask >> bit) & 1 ? 0 : 1] * camGroups[camIds[bit]].length;
+        }
+        if (cost < bestCost) { bestCost = cost; bestMask = mask; }
+      }
+
+      g1Ids = camIds.filter((_, b) => (bestMask >> b) & 1);
+      g2Ids = camIds.filter((_, b) => !((bestMask >> b) & 1));
+      vak1Data = csvData[0].vak;
+      vak2Data = csvData[1].vak;
+    } else if (csvData.length === 1) {
+      // Multiple cameras, 1 CSV
+      const scored = camIds.map(cid => [camDistToCsv(camGroups[cid], csvData[0]), cid])
+        .sort((a, b) => a[0] - b[0]);
+      const mid = Math.floor(scored.length / 2) || 1;
+      g1Ids = scored.slice(0, mid).map(s => s[1]);
+      g2Ids = scored.slice(mid).map(s => s[1]);
+      vak1Data = csvData[0].vak;
+      vak2Data = { track: [] };
+    } else {
+      // No CSVs — split by mean GPS position
+      const camCen = {};
+      for (const cid of camIds) {
+        const allPts = camGroups[cid].flatMap(q => q.track);
+        camCen[cid] = {
+          lat: allPts.reduce((s, p) => s + p.lat, 0) / allPts.length,
+          lon: allPts.reduce((s, p) => s + p.lon, 0) / allPts.length,
+        };
+      }
+      // Find farthest pair
+      let maxD = -1, si = 0, sj = 1;
+      for (let i = 0; i < nCams; i++) {
+        for (let j = i + 1; j < nCams; j++) {
+          const d = Math.pow(camCen[camIds[i]].lat - camCen[camIds[j]].lat, 2) +
+                    Math.pow(camCen[camIds[i]].lon - camCen[camIds[j]].lon, 2);
+          if (d > maxD) { maxD = d; si = i; sj = j; }
+        }
+      }
+      const s1 = camCen[camIds[si]], s2 = camCen[camIds[sj]];
+      g1Ids = []; g2Ids = [];
+      for (const cid of camIds) {
+        const cc = camCen[cid];
+        const d1 = Math.pow(cc.lat - s1.lat, 2) + Math.pow(cc.lon - s1.lon, 2);
+        const d2 = Math.pow(cc.lat - s2.lat, 2) + Math.pow(cc.lon - s2.lon, 2);
+        if (d1 <= d2) g1Ids.push(cid); else g2Ids.push(cid);
+      }
+      vak1Data = { track: [] };
+      vak2Data = { track: [] };
+    }
+
+    // Ensure ds1 has content
+    if (g1Ids.length === 0 && g2Ids.length > 0) {
+      [g1Ids, g2Ids] = [g2Ids, g1Ids];
+      [vak1Data, vak2Data] = [vak2Data, vak1Data];
+    }
+
+    const singleMode = g2Ids.length === 0;
+
+    // ---- Phase 5: Build datasets ----
+    function buildDs(ids, vakData) {
+      const segments = [];
+      for (const cid of ids) {
+        for (const cd of camGroups[cid]) {
+          const track = cd.track;
+          const epochs = track.map(p => p.ts);
+          // 't' (video time) will be computed when video duration is known.
+          // For now, store fileProgress and estimate t linearly from epoch range.
+          // When the video loads, loadedmetadata will recompute vTimes properly.
+          const epMin = Math.min(...epochs);
+          const epMax = Math.max(...epochs);
+          segments.push({
+            name: cd.name,
+            gps: track.map(p => ({
+              lat: p.lat, lon: p.lon, ts: p.ts,
+              t: 0, // placeholder — finalized on loadedmetadata
+              fileProgress: p.fileProgress || 0
+            })),
+            epochMin: epMin,
+            epochMax: epMax,
+            _file: cd.file,
+          });
+        }
+      }
+      segments.sort((a, b) => a.epochMin - b.epochMin);
+      return { segments, vakaros: vakData };
+    }
+
+    const ds1 = buildDs(g1Ids, vak1Data);
+    const ds2 = buildDs(g2Ids, vak2Data);
+
+    // Show assignment
+    assignBox.style.display = '';
+    let aHtml = '';
+    const mode = singleMode ? 'Single-athlete' : 'Dual-athlete';
+    aHtml += `<div style="margin-bottom:6px;"><strong>${mode} mode</strong></div>`;
+    aHtml += `<div class="red">RED clips: ${ds1.segments.map(s => s.name).join(', ')}</div>`;
+    if (ds1.vakaros.track.length) aHtml += `<div class="red">RED Vakaros: ${ds1.vakaros.track.length} points</div>`;
+    if (!singleMode) {
+      aHtml += `<div class="blue">BLUE clips: ${ds2.segments.map(s => s.name).join(', ')}</div>`;
+      if (ds2.vakaros.track.length) aHtml += `<div class="blue">BLUE Vakaros: ${ds2.vakaros.track.length} points</div>`;
+    }
+    assignBox.innerHTML = aHtml;
+
+    log(`\n✓ Ready! ${ds1.segments.length + ds2.segments.length} clip(s), ${mode} mode.`, 'ok');
+
+    // Build mp4FileMap for video loading
+    const mp4FileMap = {};
+    for (const cd of clipData) {
+      mp4FileMap[cd.name.toLowerCase()] = cd.file;
+    }
+
+    processedData = { ds1, ds2, mp4FileMap, singleMode };
+    launchRow.style.display = '';
+  } catch (e) {
+    log(`Error: ${e.message}`, 'err');
+    console.error(e);
+  }
+  btnProcess.disabled = false;
+});
+
+// ================================================================
+//                    LAUNCH VIEWER
+// ================================================================
+document.getElementById('btnLaunch').addEventListener('click', () => {
+  if (!processedData) return;
+  launchViewer(processedData.ds1, processedData.ds2, processedData.mp4FileMap, processedData.singleMode);
+});
+
+function launchViewer(ds1, ds2, mp4FileMap, singleMode) {
+  document.getElementById('setupPhase').style.display = 'none';
+  document.getElementById('viewerPhase').style.display = 'block';
+
+  // Back button
+  document.getElementById('btnBack').addEventListener('click', () => {
+    // This is destructive — reload page to go back
+    location.reload();
+  });
+
+  // ======================== Init data ========================
+  const vakTrack1 = (ds1.vakaros && ds1.vakaros.track) || [];
+  const vakTrack2 = (ds2.vakaros && ds2.vakaros.track) || [];
+  const vakEpochs1 = vakTrack1.map(p => p.ts);
+  const vakEpochs2 = vakTrack2.map(p => p.ts);
+
+  // Stats
+  document.getElementById('nc1').textContent = ds1.segments.length;
+  document.getElementById('nk1').textContent = vakTrack1.length;
+  document.getElementById('nc2').textContent = ds2.segments.length;
+  document.getElementById('nk2').textContent = vakTrack2.length;
+
+  // Hide blue UI in single-athlete mode
+  if (singleMode) {
+    document.getElementById('vc2').style.display = 'none';
+    document.getElementById('vc1').style.flex = '1';
+    document.querySelectorAll('.stats-row span').forEach(el => {
+      if (el.style.color === 'rgb(66, 165, 245)' || el.style.color === 'rgb(144, 202, 249)')
+        el.style.display = 'none';
+    });
+    document.getElementById('o2hdr').style.display = 'none';
+    document.getElementById('o2clipRow').style.display = 'none';
+    document.getElementById('o2gpsRow').style.display = 'none';
+    document.getElementById('o2vakRow').style.display = 'none';
+  }
+
+  // Pre-compute per-segment lookup arrays
+  function initSegments(ds) {
+    ds.segments.forEach(seg => {
+      seg.epochs = seg.gps.map(p => p.ts);
+      // t will be finalized when video loads (from fileProgress * duration)
+      seg.vTimes = seg.gps.map(p => p.t);
+      seg.el = null;
+      seg.loaded = false;
+      seg.pSeek = 0;
+      seg.durationKnown = false;
+    });
+  }
+  initSegments(ds1);
+  initSegments(ds2);
+
+  function allGps(ds) {
+    const pts = [];
+    ds.segments.forEach(s => s.gps.forEach(p => pts.push(p)));
+    pts.sort((a, b) => a.ts - b.ts);
+    return pts;
+  }
+  const allGps1 = allGps(ds1);
+  const allGps2 = allGps(ds2);
+
+  // Global epoch range
+  const allEp = [].concat(
+    allGps1.map(p => p.ts), allGps2.map(p => p.ts),
+    vakEpochs1, vakEpochs2
+  );
+  const epochMin = allEp.length ? allEp.reduce((a, b) => Math.min(a, b), Infinity) : 0;
+  const epochMax = allEp.length ? allEp.reduce((a, b) => Math.max(a, b), -Infinity) : 1;
+  const totalDur = epochMax - epochMin;
+
+  // ======================== Helpers ========================
+  function findIdxLE(arr, x) {
+    let lo = 0, hi = arr.length - 1;
+    while (lo <= hi) { const m = (lo + hi) >> 1; if (arr[m] <= x) lo = m + 1; else hi = m - 1; }
+    return Math.max(0, Math.min(arr.length - 1, hi));
+  }
+
+  function epochToVTime(epochs, vTimes, ep) {
+    if (!epochs.length) return NaN;
+    if (ep <= epochs[0]) return vTimes[0];
+    if (ep >= epochs[epochs.length - 1]) return vTimes[vTimes.length - 1];
+    const i = findIdxLE(epochs, ep);
+    if (i >= epochs.length - 1) return vTimes[i];
+    const f = (ep - epochs[i]) / (epochs[i + 1] - epochs[i]);
+    return vTimes[i] + f * (vTimes[i + 1] - vTimes[i]);
+  }
+
+  function vTimeToEpoch(epochs, vTimes, vt) {
+    if (!vTimes.length) return NaN;
+    if (vt <= vTimes[0]) return epochs[0];
+    if (vt >= vTimes[vTimes.length - 1]) return epochs[epochs.length - 1];
+    const i = findIdxLE(vTimes, vt);
+    if (i >= vTimes.length - 1) return epochs[i];
+    const f = (vt - vTimes[i]) / (vTimes[i + 1] - vTimes[i]);
+    return epochs[i] + f * (epochs[i + 1] - epochs[i]);
+  }
+
+  function inRange(epochs, ep) {
+    return epochs.length >= 2 && ep >= epochs[0] && ep <= epochs[epochs.length - 1];
+  }
+
+  function interpPos(track, epochs, ep) {
+    if (!track.length || !inRange(epochs, ep)) return null;
+    const i = findIdxLE(epochs, ep);
+    if (i >= track.length - 1) return { lat: track[i].lat, lon: track[i].lon };
+    const f = (ep - epochs[i]) / (epochs[i + 1] - epochs[i]);
+    return {
+      lat: track[i].lat + f * (track[i + 1].lat - track[i].lat),
+      lon: track[i].lon + f * (track[i + 1].lon - track[i].lon)
+    };
+  }
+
+  function interpDsGps(allPts, ep) {
+    if (!allPts.length) return null;
+    const eps = allPts.map(p => p.ts);
+    return interpPos(allPts, eps, ep);
+  }
+
+  function fmtElapsed(s) {
+    s = Math.max(0, Math.floor(s));
+    const m = Math.floor(s / 60), h = Math.floor(m / 60);
+    if (h) return h + ':' + String(m % 60).padStart(2, '0') + ':' + String(s % 60).padStart(2, '0');
+    return m + ':' + String(s % 60).padStart(2, '0');
+  }
+  function fmtEpochUTC(ts) {
+    if (!isFinite(ts)) return '-';
+    return new Date(ts * 1000).toISOString().replace('T', ' ').replace('.000Z', 'Z');
+  }
+  function fmtLL(pos) {
+    return pos ? pos.lat.toFixed(6) + ', ' + pos.lon.toFixed(6) : '-';
+  }
+
+  // ======================== Map ========================
+  const map = L.map('map', { zoomControl: true });
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    maxZoom: 19, attribution: '&copy; OpenStreetMap contributors'
+  }).addTo(map);
+
+  const vakLine1 = vakTrack1.length
+    ? L.polyline(vakTrack1.map(p => [p.lat, p.lon]), { color: '#e53935', weight: 3, opacity: 0.85 }).addTo(map) : null;
+  const mp4Line1 = allGps1.length
+    ? L.polyline(allGps1.map(p => [p.lat, p.lon]), { color: '#ef9a9a', weight: 3, opacity: 0.55, dashArray: '6 4' }).addTo(map) : null;
+  const vakLine2 = vakTrack2.length
+    ? L.polyline(vakTrack2.map(p => [p.lat, p.lon]), { color: '#1e88e5', weight: 3, opacity: 0.85 }).addTo(map) : null;
+  const mp4Line2 = allGps2.length
+    ? L.polyline(allGps2.map(p => [p.lat, p.lon]), { color: '#90caf9', weight: 3, opacity: 0.55, dashArray: '6 4' }).addTo(map) : null;
+
+  // ======================== Fade-track support ========================
+  const greyVak1 = vakTrack1.length
+    ? L.polyline(vakTrack1.map(p => [p.lat, p.lon]), { color: '#888', weight: 2, opacity: 0.25 }).addTo(map) : null;
+  const greyMp41 = allGps1.length
+    ? L.polyline(allGps1.map(p => [p.lat, p.lon]), { color: '#888', weight: 2, opacity: 0.25, dashArray: '4 3' }).addTo(map) : null;
+  const greyVak2 = vakTrack2.length
+    ? L.polyline(vakTrack2.map(p => [p.lat, p.lon]), { color: '#888', weight: 2, opacity: 0.25 }).addTo(map) : null;
+  const greyMp42 = allGps2.length
+    ? L.polyline(allGps2.map(p => [p.lat, p.lon]), { color: '#888', weight: 2, opacity: 0.25, dashArray: '4 3' }).addTo(map) : null;
+  [greyVak1, greyMp41, greyVak2, greyMp42].forEach(l => { if (l) map.removeLayer(l); });
+
+  const FADE_WIN = 60;
+  const FADE_OUTER = 15;
+  const FADE_INNER = 15;
+
+  function makeFadeSet(color, weight, dashArr) {
+    const opts = { weight, interactive: false };
+    if (dashArr) opts.dashArray = dashArr;
+    return {
+      ultraFadeIn: L.polyline([], Object.assign({}, opts, { color, opacity: 0.15 })),
+      fadeIn: L.polyline([], Object.assign({}, opts, { color, opacity: 0.35 })),
+      solid: L.polyline([], Object.assign({}, opts, { color, opacity: 0.85 })),
+      fadeOut: L.polyline([], Object.assign({}, opts, { color, opacity: 0.35 })),
+      ultraFadeOut: L.polyline([], Object.assign({}, opts, { color, opacity: 0.15 })),
+    };
+  }
+  const fadeVak1 = makeFadeSet('#e53935', 3);
+  const fadeMp41 = makeFadeSet('#ef9a9a', 3, '6 4');
+  const fadeVak2 = makeFadeSet('#1e88e5', 3);
+  const fadeMp42 = makeFadeSet('#90caf9', 3, '6 4');
+  const allFadeSets = [fadeVak1, fadeMp41, fadeVak2, fadeMp42];
+
+  let fadeMode = false;
+
+  function sliceTrack(pts, epochs, ep) {
+    const tLo = ep - FADE_WIN, tHi = ep + FADE_WIN;
+    const tUltraFadeEnd = ep - FADE_WIN + FADE_OUTER;
+    const tFadeInEnd = ep - FADE_WIN + FADE_OUTER + FADE_INNER;
+    const tFadeOutStart = ep + FADE_WIN - FADE_OUTER - FADE_INNER;
+    const tUltraFadeStart = ep + FADE_WIN - FADE_OUTER;
+    let lo = 0, hi = epochs.length;
+    while (lo < hi) { const m = (lo + hi) >> 1; epochs[m] < tLo ? lo = m + 1 : hi = m; }
+    const iStart = lo;
+    lo = iStart; hi = epochs.length;
+    while (lo < hi) { const m = (lo + hi) >> 1; epochs[m] <= tHi ? lo = m + 1 : hi = m; }
+    const iEnd = lo;
+    if (iStart >= iEnd) return { ultraFadeIn: [], fadeIn: [], solid: [], fadeOut: [], ultraFadeOut: [] };
+
+    const ultraFadeInPts = [], fadeInPts = [], solidPts = [], fadeOutPts = [], ultraFadeOutPts = [];
+    for (let i = iStart; i < iEnd; i++) {
+      const t = epochs[i], ll = [pts[i].lat, pts[i].lon];
+      if (t < tUltraFadeEnd) ultraFadeInPts.push(ll);
+      else if (t < tFadeInEnd) fadeInPts.push(ll);
+      else if (t <= tFadeOutStart) solidPts.push(ll);
+      else if (t <= tUltraFadeStart) fadeOutPts.push(ll);
+      else ultraFadeOutPts.push(ll);
+    }
+    if (ultraFadeInPts.length && fadeInPts.length) fadeInPts.unshift(ultraFadeInPts[ultraFadeInPts.length - 1]);
+    if (fadeInPts.length && solidPts.length) solidPts.unshift(fadeInPts[fadeInPts.length - 1]);
+    if (solidPts.length && fadeOutPts.length) fadeOutPts.unshift(solidPts[solidPts.length - 1]);
+    if (fadeOutPts.length && ultraFadeOutPts.length) ultraFadeOutPts.unshift(fadeOutPts[fadeOutPts.length - 1]);
+    return { ultraFadeIn: ultraFadeInPts, fadeIn: fadeInPts, solid: solidPts, fadeOut: fadeOutPts, ultraFadeOut: ultraFadeOutPts };
+  }
+
+  const vakEpochArr1 = vakTrack1.map(p => p.ts);
+  const mp4EpochArr1 = allGps1.map(p => p.ts);
+  const vakEpochArr2 = vakTrack2.map(p => p.ts);
+  const mp4EpochArr2 = allGps2.map(p => p.ts);
+
+  function updateFadeTracks(ep) {
+    const pairs = [
+      [fadeVak1, vakTrack1, vakEpochArr1],
+      [fadeMp41, allGps1, mp4EpochArr1],
+      [fadeVak2, vakTrack2, vakEpochArr2],
+      [fadeMp42, allGps2, mp4EpochArr2],
+    ];
+    for (const [fs, pts, epochs] of pairs) {
+      if (!pts.length) continue;
+      const s = sliceTrack(pts, epochs, ep);
+      fs.ultraFadeIn.setLatLngs(s.ultraFadeIn);
+      fs.fadeIn.setLatLngs(s.fadeIn);
+      fs.solid.setLatLngs(s.solid);
+      fs.fadeOut.setLatLngs(s.fadeOut);
+      fs.ultraFadeOut.setLatLngs(s.ultraFadeOut);
+    }
+  }
+
+  function enableFade() {
+    [vakLine1, mp4Line1, vakLine2, mp4Line2].forEach(l => { if (l) map.removeLayer(l); });
+    [greyVak1, greyMp41, greyVak2, greyMp42].forEach(l => { if (l) map.addLayer(l); });
+    allFadeSets.forEach(fs => {
+      map.addLayer(fs.ultraFadeIn); map.addLayer(fs.fadeIn); map.addLayer(fs.solid);
+      map.addLayer(fs.fadeOut); map.addLayer(fs.ultraFadeOut);
+    });
+    if (goProGpsHidden) {
+      [greyMp41, greyMp42].forEach(l => { if (l) map.removeLayer(l); });
+      [fadeMp41, fadeMp42].forEach(fs => {
+        map.removeLayer(fs.ultraFadeIn); map.removeLayer(fs.fadeIn); map.removeLayer(fs.solid);
+        map.removeLayer(fs.fadeOut); map.removeLayer(fs.ultraFadeOut);
+      });
+    }
+  }
+  function disableFade() {
+    allFadeSets.forEach(fs => {
+      map.removeLayer(fs.ultraFadeIn); map.removeLayer(fs.fadeIn); map.removeLayer(fs.solid);
+      map.removeLayer(fs.fadeOut); map.removeLayer(fs.ultraFadeOut);
+    });
+    [greyVak1, greyMp41, greyVak2, greyMp42].forEach(l => { if (l) map.removeLayer(l); });
+    [vakLine1, mp4Line1, vakLine2, mp4Line2].forEach(l => { if (l) map.addLayer(l); });
+    if (goProGpsHidden) {
+      [mp4Line1, mp4Line2].forEach(l => { if (l) map.removeLayer(l); });
+    }
+  }
+
+  // Arrow icon factory
+  function makeArrowIcon(fill, stroke) {
+    const svg = `<svg class="arrow-svg" xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="-11 -11 22 22" style="display:block;">
+      <polygon points="0,-10 6,7 0,3 -6,7" fill="${fill}" stroke="${stroke}" stroke-width="1.5"/></svg>`;
+    return L.divIcon({ html: svg, className: 'arrow-icon', iconSize: [22, 22], iconAnchor: [11, 11] });
+  }
+
+  const vakArrow1 = vakTrack1.length
+    ? L.marker([vakTrack1[0].lat, vakTrack1[0].lon], { icon: makeArrowIcon('#e53935', '#b71c1c'), zIndexOffset: 400 }).addTo(map) : null;
+  const vakArrow2 = vakTrack2.length
+    ? L.marker([vakTrack2[0].lat, vakTrack2[0].lon], { icon: makeArrowIcon('#1e88e5', '#0d47a1'), zIndexOffset: 400 }).addTo(map) : null;
+
+  const mp4Dot1 = allGps1.length
+    ? L.circleMarker([allGps1[0].lat, allGps1[0].lon], { radius: 6, color: '#e53935', fillColor: '#ef9a9a', fillOpacity: 0.9, weight: 2 }).addTo(map) : null;
+  const mp4Dot2 = allGps2.length
+    ? L.circleMarker([allGps2[0].lat, allGps2[0].lon], { radius: 6, color: '#1e88e5', fillColor: '#90caf9', fillOpacity: 0.9, weight: 2 }).addTo(map) : null;
+
+  function computeHeading(pts, ep) {
+    if (!pts || pts.length < 2) return null;
+    let lo = 0, hi = pts.length - 1;
+    while (lo < hi) { const m = (lo + hi) >> 1; pts[m].ts < ep ? lo = m + 1 : hi = m; }
+    const i = Math.max(0, Math.min(lo, pts.length - 2));
+    const a = pts[i], b = pts[Math.min(i + 1, pts.length - 1)];
+    const dlat = b.lat - a.lat, dlon = b.lon - a.lon;
+    if (Math.abs(dlat) < 1e-8 && Math.abs(dlon) < 1e-8) return null;
+    return (Math.atan2(dlon, dlat) * 180 / Math.PI + 360) % 360;
+  }
+  function setArrowHeading(marker, heading) {
+    if (!marker) return;
+    const el = marker.getElement && marker.getElement();
+    if (!el) return;
+    const svg = el.querySelector('.arrow-svg');
+    if (svg) svg.style.transform = `rotate(${heading}deg)`;
+  }
+
+  // Fit bounds — invalidateSize first since the container was hidden at init
+  setTimeout(() => {
+    map.invalidateSize();
+    const bnds = [mp4Line1, vakLine1, mp4Line2, vakLine2].filter(Boolean).map(l => l.getBounds());
+    if (bnds.length) {
+      let b = bnds[0]; for (let i = 1; i < bnds.length; i++) b = b.extend(bnds[i]);
+      map.fitBounds(b.pad(0.15));
+    } else { map.setView([0, 0], 2); }
+  }, 50);
+
+  // ======================== Clickable tracks ========================
+  function findNearestEpoch(pts, latlng) {
+    let best = -1, bestD = Infinity;
+    for (let i = 0; i < pts.length; i++) {
+      const d = Math.pow(pts[i].lat - latlng.lat, 2) + Math.pow(pts[i].lon - latlng.lng, 2);
+      if (d < bestD) { bestD = d; best = i; }
+    }
+    return best >= 0 ? pts[best].ts : null;
+  }
+  function onTrackClick(pts, e) {
+    const ep = findNearestEpoch(pts, e.latlng);
+    if (ep !== null) {
+      if (playing) pauseAll();
+      masterEpoch = Math.max(epochMin, Math.min(epochMax, ep));
+      syncUI();
+    }
+  }
+  if (mp4Line1) mp4Line1.on('click', e => onTrackClick(allGps1, e));
+  if (vakLine1) vakLine1.on('click', e => onTrackClick(vakTrack1, e));
+  if (mp4Line2) mp4Line2.on('click', e => onTrackClick(allGps2, e));
+  if (vakLine2) vakLine2.on('click', e => onTrackClick(vakTrack2, e));
+
+  // ======================== Create <video> elements ========================
+  function createVidEls(ds, container, blk) {
+    ds.segments.forEach((seg, i) => {
+      const v = document.createElement('video');
+      v.setAttribute('playsinline', '');
+      v.preload = 'auto';
+      container.insertBefore(v, blk);
+      seg.el = v;
+
+      // Load video from mp4FileMap
+      const key = seg.name.toLowerCase();
+      if (mp4FileMap[key]) {
+        v.src = URL.createObjectURL(mp4FileMap[key]);
+        v.load();
+        seg.loaded = true;
+      }
+
+      // When metadata loaded, finalize vTimes from video duration
+      v.addEventListener('loadedmetadata', () => {
+        if (!seg.durationKnown && v.duration && isFinite(v.duration)) {
+          seg.durationKnown = true;
+          const dur = v.duration;
+          // Recompute vTimes from fileProgress * duration
+          seg.vTimes = seg.gps.map(p => (p.fileProgress || 0) * dur);
+          // Also update the t values in gps array for consistency
+          seg.gps.forEach((p, idx) => { p.t = seg.vTimes[idx]; });
+        }
       });
 
-      applyWindow(true);
-    }
-
-    function applyWindow(redrawTimeline){
-      if (!state.chart) return;
-
-      const minTe = -state.padStartSec;
-      const maxTe = state.duration;
-
-      state.centerTe = clamp(state.centerTe, minTe, maxTe);
-
-      const spanMax = Math.max(2, (maxTe - minTe) || 2);
-      const span = clamp(state.spanSec, 2, spanMax);
-      const half = span/2;
-
-      // keep center anchored; window shrinks at edges
-      let wMin = clamp(state.centerTe - half, minTe, maxTe);
-      let wMax = clamp(state.centerTe + half, minTe, maxTe);
-      if (wMax - wMin < 0.1) {
-        wMin = clamp(state.centerTe - 0.5, minTe, maxTe);
-        wMax = clamp(state.centerTe + 0.5, minTe, maxTe);
-      }
-
-      state.wMin = wMin;
-      state.wMax = wMax;
-
-      state.chart.options.scales.x.min = wMin;
-      state.chart.options.scales.x.max = wMax;
-      state.chart.update("none");
-
-      updateMapWindowHighlight();
-
-      if (redrawTimeline) drawVideoTimeline();
-    }
-
-    // =========================
-    // CSV parsing
-    // =========================
-    function detectFormat(headerLower){
-      if (headerLower.includes("sog_kts") && headerLower.includes("timestamp")) return "vakaros";
-      if (headerLower.includes("unit_id") && headerLower.includes("timestamp_ms") && headerLower.includes("sog_mps")) return "red";
-      return "unknown";
-    }
-
-    async function loadCSV(file){
-      const text = await file.text();
-      const lines = text.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
-      if (lines.length < 2) throw new Error("CSV seems empty.");
-
-      const header = splitCSVLine(lines[0]).map(s => s.toLowerCase());
-      const idx = (name) => header.indexOf(name.toLowerCase());
-      const fmt = detectFormat(header);
-      if (fmt === "unknown") throw new Error("Unknown CSV format.");
-
-      const pts = [];
-
-      if (fmt === "vakaros"){
-        const iTs = idx("timestamp");
-        const iLat = idx("latitude");
-        const iLon = idx("longitude");
-        const iSog = idx("sog_kts");
-        const iCog = idx("cog");
-        const iHdg = idx("hdg_true");
-        const iHeel = idx("heel");
-        const iTrim = idx("trim");
-        if (iTs<0 || iLat<0 || iLon<0 || iSog<0) throw new Error("Vakaros CSV missing required columns.");
-
-        for (let k=1;k<lines.length;k++){
-          const row = splitCSVLine(lines[k]);
-          if (row.length < header.length) continue;
-
-          const d = parseISOish(row[iTs]);
-          if (!d) continue;
-
-          const lat = toNum(row[iLat]);
-          const lon = toNum(row[iLon]);
-          const sogKt = toNum(row[iSog]);
-          if (!Number.isFinite(sogKt)) continue;
-
-          pts.push({
-            tAbs: d, te: 0,
-            lat: Number.isFinite(lat) ? lat : NaN,
-            lon: Number.isFinite(lon) ? lon : NaN,
-            sogKt,
-            cog: (iCog>=0)? toNum(row[iCog]) : NaN,
-            hdg: (iHdg>=0)? toNum(row[iHdg]) : NaN,
-            heel: (iHeel>=0)? toNum(row[iHeel]) : NaN,
-            trim: (iTrim>=0)? toNum(row[iTrim]) : NaN,
-            torso: NaN
-          });
+      v.addEventListener('seeked', () => {
+        // Ignore programmatic seeks (from sync logic)
+        if (seg.pSeek > 0) { seg.pSeek--; return; }
+        // Only update master clock from manual user scrubs (when paused)
+        if (!playing && v.readyState >= 1) {
+          masterEpoch = vTimeToEpoch(seg.epochs, seg.vTimes, v.currentTime);
+          masterEpoch = Math.max(epochMin, Math.min(epochMax, masterEpoch));
+          syncUI();
         }
-        if (pts.length < 2) throw new Error("Not enough valid rows parsed.");
+      });
+    });
+  }
 
-        pts.sort((a,b)=>a.tAbs - b.tAbs);
-        const t0 = pts[0].tAbs.getTime();
-        for (const p of pts) p.te = (p.tAbs.getTime() - t0)/1000;
-        state.t0Abs = pts[0].tAbs;
-      }
+  const vc1 = document.getElementById('vc1');
+  const vc2 = document.getElementById('vc2');
+  const blk1 = document.getElementById('blk1');
+  const blk2 = document.getElementById('blk2');
+  createVidEls(ds1, vc1, blk1);
+  createVidEls(ds2, vc2, blk2);
 
-      if (fmt === "red"){
-        const iMs = idx("timestamp_ms");
-        const iIso = idx("iso_time");
-        const iLat = idx("lat");
-        const iLon = idx("lon");
-        const iSog = idx("sog_mps");
-        const iCog = idx("heading_deg");
-        const iHdg = idx("mag_hdg");
-        const iRoll = idx("roll_deg");
-        const iPitch = idx("pitch_deg");
-        const iTorso = idx("torso_angle");
+  // ======================== MediaPipe Pose Detection ========================
+  let poseEnabled = false;
+  let mpPose = null;
+  let poseReady = false;
+  const poseCanvases = new Map(); // video element → canvas
+  const POSE_FPS = 10; // max detections per second
+  let lastPoseTime = 0;
 
-        if (iMs<0 || iSog<0) throw new Error("RED CSV missing required columns (timestamp_ms, sog_mps).");
+  // Connections for skeleton drawing
+  const POSE_CONNECTIONS = [
+    [11,12],[11,13],[13,15],[12,14],[14,16], // torso+arms
+    [11,23],[12,24],[23,24],                  // torso-hip
+    [23,25],[25,27],[24,26],[26,28],          // legs
+    [15,17],[15,19],[15,21],[16,18],[16,20],[16,22], // hands
+    [27,29],[27,31],[28,30],[28,32],          // feet
+    [0,1],[1,2],[2,3],[3,7],[0,4],[4,5],[5,6],[6,8], // face
+    [9,10] // mouth
+  ];
 
-        let firstAbs = null;
-        let firstMs = null;
-        for (let k=1;k<lines.length;k++){
-          const row = splitCSVLine(lines[k]);
-          const ms = parseInt(row[iMs], 10);
-          const d = (iIso>=0) ? parseISOish(row[iIso]) : null;
-          if (d && Number.isFinite(ms)) { firstAbs = d; firstMs = ms; break; }
-        }
+  function getOrCreatePoseCanvas(videoEl, container) {
+    if (poseCanvases.has(videoEl)) return poseCanvases.get(videoEl);
+    const c = document.createElement('canvas');
+    c.className = 'pose-overlay';
+    c.width = 640;
+    c.height = 480;
+    container.appendChild(c);
+    poseCanvases.set(videoEl, c);
+    return c;
+  }
 
-        for (let k=1;k<lines.length;k++){
-          const row = splitCSVLine(lines[k]);
-          if (row.length < 5) continue;
-
-          const ms = parseInt(row[iMs], 10);
-          if (!Number.isFinite(ms)) continue;
-
-          const tAbsRow = (iIso>=0) ? parseISOish(row[iIso]) : null;
-          let tAbs = tAbsRow;
-          if (!tAbs && firstAbs && firstMs != null) tAbs = new Date(firstAbs.getTime() + (ms - firstMs));
-
-          const lat = (iLat>=0) ? toNum(row[iLat]) : NaN;
-          const lon = (iLon>=0) ? toNum(row[iLon]) : NaN;
-
-          const sogMps = toNum(row[iSog]);
-          if (!Number.isFinite(sogMps)) continue;
-          const sogKt = sogMps * 1.943844;
-
-          const cog = (iCog>=0) ? toNum(row[iCog]) : NaN;
-          const hdg = (iHdg>=0) ? toNum(row[iHdg]) : NaN;
-
-          pts.push({
-            tAbs, te: 0,
-            lat: Number.isFinite(lat) ? lat : NaN,
-            lon: Number.isFinite(lon) ? lon : NaN,
-            sogKt,
-            cog: Number.isFinite(cog) ? cog : (Number.isFinite(hdg) ? hdg : NaN),
-            hdg: Number.isFinite(hdg) ? hdg : NaN,
-            heel: (iRoll>=0)? toNum(row[iRoll]) : NaN,
-            trim: (iPitch>=0)? toNum(row[iPitch]) : NaN,
-            torso: (iTorso>=0)? toNum(row[iTorso]) : NaN
-          });
-        }
-        if (pts.length < 2) throw new Error("Not enough valid rows parsed.");
-
-        if (pts.some(p => p.tAbs instanceof Date && !isNaN(p.tAbs.getTime()))) {
-          pts.sort((a,b)=>a.tAbs - b.tAbs);
-          const t0 = pts.find(p => p.tAbs)?.tAbs?.getTime();
-          for (const p of pts) p.te = (p.tAbs.getTime() - t0)/1000;
-          state.t0Abs = pts.find(p => p.tAbs)?.tAbs ?? null;
-        } else {
-          for (let i=0;i<pts.length;i++) pts[i].te = i;
-          state.t0Abs = null;
-        }
-      }
-
-      state.points = pts.filter(p => Number.isFinite(p.te));
-      state.duration = state.points[state.points.length - 1].te;
-
-      state.centerTe = -Math.min(state.padStartSec, 2.0);
-      state.spanSec = Math.min(60, Math.max(6, state.duration + state.padStartSec));
-
-      rebuildMap();
-      makeChart();
-      updateAtCenter(true);
-
-      // after CSV import, if we have video start time, attempt auto align once
-      maybeAutoAlign("csv");
-
-      setTimeout(()=>{ try{ map.invalidateSize(); }catch(e){} }, 60);
-    }
-
-    // =========================
-    // Map rebuild + highlight window
-    // =========================
-    function rebuildMap(){
-      const latlngsAll = state.points
-        .filter(p => Number.isFinite(p.lat) && Number.isFinite(p.lon))
-        .map(p => [p.lat, p.lon]);
-
-      if (state.polyAll) state.polyAll.remove();
-      if (state.polyWindow) state.polyWindow.remove();
-      if (state.marker) state.marker.remove();
-
-      if (latlngsAll.length >= 2) {
-        // full track (lighter blue)
-        state.polyAll = L.polyline(latlngsAll, { weight: 4, opacity: 0.55, color: "#4ea1ff" }).addTo(map);
-
-        // visible window track (darker blue)
-        state.polyWindow = L.polyline([], { weight: 7, opacity: 0.85, color: "#1f6fff" }).addTo(map);
-
-        // red scrub marker
-        state.marker = L.circleMarker(latlngsAll[0], {
-          radius: 9, weight: 3, color: "#ff3b30", fillColor: "#ff3b30", fillOpacity: 0.92
-        }).addTo(map);
-        state.marker.bringToFront();
-
-        const b = state.polyAll.getBounds();
-        if (b.isValid()) map.fitBounds(b.pad(0.1));
-
-        updateMapWindowHighlight();
-      } else {
-        state.polyAll = null;
-        state.polyWindow = null;
-        state.marker = null;
-        map.setView([0,0], 2);
-      }
-    }
-
-    function updateMapWindowHighlight(){
-      if (!state.polyWindow) return;
-      if (!state.points.length) return;
-
-      const wMin = state.wMin ?? 0;
-      const wMax = state.wMax ?? 0;
-
-      const latlngsWindow = [];
-      for (const p of state.points){
-        if (p.te < wMin || p.te > wMax) continue;
-        if (!Number.isFinite(p.lat) || !Number.isFinite(p.lon)) continue;
-        latlngsWindow.push([p.lat, p.lon]);
-      }
-
-      state.polyWindow.setLatLngs(latlngsWindow);
-      // keep red marker on top
-      if (state.marker) state.marker.bringToFront();
-    }
-
-    function fitTrackBtn(){
-      fitTrack();
-    }
-
-    // =========================
-    // Video timing + alignment (OFFSET FROM START)
-    // =========================
-    function getOffsetSec(){
-      const h = parseInt(offsetHoursEl.value, 10) || 0;
-      const m = parseInt(offsetMinEl.value, 10) || 0;
-      const s = parseFloat(offsetEl.value) || 0;
-      return h * 3600 + m * 60 + s;
-    }
-    function setOffsetSec(v){
-      if (!Number.isFinite(v)) v = 0;
-      const negative = v < 0;
-      v = Math.abs(v);
-      const h = Math.floor(v / 3600);
-      const m = Math.floor((v % 3600) / 60);
-      const s = v % 60;
-      offsetHoursEl.value = (negative ? -h : h);
-      offsetMinEl.value = m;
-      offsetEl.value = s.toFixed(2);
-    }
-    function getTzShiftHours(){
-      const v = parseInt(tzShiftEl.value, 10);
-      return Number.isFinite(v) ? v : 0;
-    }
-
-    // We treat file.lastModified as the START time of the video (best-effort).
-    // If it’s actually end time on your platform, the TZ shift controls will still help for whole-hour issues,
-    // and you can also Set-from-center for fine alignment.
-    function computeAutoOffsetSec(){
-      if (!state.videoStartAbsMs) return null;
-      if (!(state.t0Abs instanceof Date) || isNaN(state.t0Abs.getTime())) return null;
-
-      const tzShift = getTzShiftHours() * 3600;
-      const videoStartAbs = new Date(state.videoStartAbsMs + tzShift*1000);
-      const off = (videoStartAbs.getTime() - state.t0Abs.getTime()) / 1000;
-      return off;
-    }
-
-    function maybeAutoAlign(reason){
-      // only auto-align if both sides present
-      if (!state.vLoaded || !state.points.length) return;
-
-      const off = computeAutoOffsetSec();
-      if (off == null){
-        if (state.points.length && !(state.t0Abs instanceof Date)) {
-          showNotice("Auto-align needs absolute timestamps in the CSV (Vakaros timestamp or RED iso_time).");
-        }
-        return;
-      }
-
-      setOffsetSec(off);
-      updateVideoPlacementNotice();
-      drawVideoTimeline();
-      updateAtCenter(true);
-
-      // show a hint if it looks badly out of range (common: timezone)
-      const seg = videoSeg();
-      if (seg){
-        const minTe = -state.padStartSec;
-        const maxTe = state.duration;
-        const totallyOutside = (seg.b < minTe || seg.a > maxTe);
-        if (totallyOutside){
-          showNotice("Auto-align placed the video outside the CSV range. Try Timezone shift (± hours) then Apply, or use Set-from-center.");
-        } else {
-          // only clear if the prior notice was about alignment; keep range notices
-          // (we'll let updateVideoPlacementNotice handle final message)
-        }
-      }
-    }
-
-    function videoSeg(){
-      if (!state.vLoaded) return null;
-      const a = getOffsetSec();
-      const b = a + state.vDuration;
-      return {a,b};
-    }
-    function centerIsInVideo(){
-      const seg = videoSeg();
-      if (!seg) return false;
-      return state.centerTe >= seg.a && state.centerTe <= seg.b;
-    }
-
-    function updateVideoPlacementNotice(){
-      if (!state.vLoaded || !state.points.length){
-        // don't overwrite other notices (but simplest: clear)
-        // caller will set if needed
-        return;
-      }
-      const seg = videoSeg();
-      const minTe = -state.padStartSec;
-      const maxTe = state.duration;
-
-      if (seg.b < minTe || seg.a > maxTe){
-        showNotice("Video timing is completely outside the CSV time range (adjust offset / timezone shift / Set-from-center).");
-        return;
-      }
-      if (seg.a < minTe || seg.b > maxTe){
-        showNotice("Video overlaps CSV, but part of the video lies outside the CSV time range.");
-        return;
-      }
-      // only clear if no other message is relevant
-      showNotice("");
-    }
-
-    function followCenterToVideo(forceSeek){
-      if (!state.vLoaded) {
-        vRead.textContent = "—";
-        inVidRead.textContent = "no video";
-        return;
-      }
-      const inside = centerIsInVideo();
-      inVidRead.textContent = inside ? "IN VIDEO" : "outside video";
-
-      if (inside && forceSeek) {
-        const vt = state.centerTe - getOffsetSec();
-        videoEl.currentTime = clamp(vt, 0, videoEl.duration);
-      }
-      vRead.textContent = fmtClock(videoEl.currentTime);
-    }
-
-    // =========================
-    // Data lookup / readouts
-    // =========================
-    function findIndexForTime(te){
-      const pts = state.points;
-      if (!pts.length) return 0;
-      const t = clamp(te, 0, state.duration);
-
-      if (t <= pts[0].te) return 0;
-      if (t >= pts[pts.length-1].te) return pts.length-1;
-
-      let i = clamp(state.lastIdx, 0, pts.length-2);
-      while (i < pts.length-2 && pts[i+1].te < t) i++;
-      while (i > 0 && pts[i].te > t) i--;
-
-      if (!(pts[i].te <= t && t <= pts[i+1].te)) {
-        let lo=0, hi=pts.length-1;
-        while (lo+1<hi){
-          const mid=(lo+hi)>>1;
-          if (pts[mid].te <= t) lo=mid; else hi=mid;
-        }
-        i=lo;
-      }
-      state.lastIdx=i;
-
-      const a=pts[i], b=pts[i+1];
-      return (Math.abs(a.te - t) <= Math.abs(b.te - t)) ? i : (i+1);
-    }
-
-    function setReadouts(p){
-      if (!p) return;
-      if (p.tAbs instanceof Date && !isNaN(p.tAbs.getTime())) tRead.textContent = p.tAbs.toISOString().replace(".000Z","Z");
-      else tRead.textContent = `${p.te.toFixed(2)}s`;
-
-      sogRead.textContent = Number.isFinite(p.sogKt) ? p.sogKt.toFixed(2) : "—";
-      cogRead.textContent = Number.isFinite(p.cog) ? p.cog.toFixed(1) : "—";
-      hdgRead.textContent = Number.isFinite(p.hdg) ? p.hdg.toFixed(1) : "—";
-      heelRead.textContent = Number.isFinite(p.heel) ? p.heel.toFixed(2) : "—";
-      trimRead.textContent = Number.isFinite(p.trim) ? p.trim.toFixed(2) : "—";
-      torsoRead.textContent = Number.isFinite(p.torso) ? p.torso.toFixed(2) : "—";
-    }
-
-    function updateAtCenter(seekVideo){
-      if (!state.points.length) return;
-
-      const idx = findIndexForTime(state.centerTe);
-      const p = state.points[idx];
-      setReadouts(p);
-
-      // marker update (nearest valid lat/lon)
-      if (state.marker) {
-        let j = idx;
-        if (!(Number.isFinite(p.lat) && Number.isFinite(p.lon))) {
-          let found = -1;
-          for (let r=1;r<60;r++){
-            const a = idx-r, b = idx+r;
-            if (a>=0 && Number.isFinite(state.points[a].lat) && Number.isFinite(state.points[a].lon)) { found=a; break; }
-            if (b<state.points.length && Number.isFinite(state.points[b].lat) && Number.isFinite(state.points[b].lon)) { found=b; break; }
-          }
-          if (found >= 0) j = found;
-        }
-        const q = state.points[j];
-        if (Number.isFinite(q.lat) && Number.isFinite(q.lon)) {
-          state.marker.setLatLng([q.lat, q.lon]);
-          state.marker.bringToFront();
-        }
-      }
-
-      followCenterToVideo(seekVideo);
-      drawVideoTimeline();
-      if (state.vLoaded && state.points.length) updateVideoPlacementNotice();
-    }
-
-    // =========================
-    // Video timeline canvas
-    // =========================
-    function resizeTimelineCanvas(){
-      const dpr = window.devicePixelRatio || 1;
-      const rect = videoTimeline.getBoundingClientRect();
-      const w = Math.max(10, Math.floor(rect.width));
-      const h = Math.max(10, Math.floor(rect.height));
-      videoTimeline.width = Math.floor(w * dpr);
-      videoTimeline.height = Math.floor(h * dpr);
-      vtCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
-      return { w, h };
-    }
-
-    function roundRect(ctx, x, y, w, h, r, fill, stroke) {
-      const radius = Math.min(r, w/2, h/2);
+  function drawSkeleton(canvas, landmarks) {
+    const ctx = canvas.getContext('2d');
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    if (!landmarks || landmarks.length === 0) return;
+    const w = canvas.width, h = canvas.height;
+    // Draw connections
+    ctx.strokeStyle = '#00ff88';
+    ctx.lineWidth = 3;
+    ctx.lineCap = 'round';
+    for (const [a, b] of POSE_CONNECTIONS) {
+      if (a >= landmarks.length || b >= landmarks.length) continue;
+      const pa = landmarks[a], pb = landmarks[b];
+      if (pa.visibility < 0.3 || pb.visibility < 0.3) continue;
       ctx.beginPath();
-      ctx.moveTo(x + radius, y);
-      ctx.arcTo(x + w, y, x + w, y + h, radius);
-      ctx.arcTo(x + w, y + h, x, y + h, radius);
-      ctx.arcTo(x, y + h, x, y, radius);
-      ctx.arcTo(x, y, x + w, y, radius);
-      ctx.closePath();
-      if (fill) ctx.fill();
-      if (stroke) ctx.stroke();
-    }
-
-    function drawVideoTimeline(){
-      const { w, h } = resizeTimelineCanvas();
-      const ctx = vtCtx;
-      ctx.clearRect(0,0,w,h);
-
-      if (!state.points.length) {
-        ctx.fillStyle = "rgba(255,255,255,0.65)";
-        ctx.font = "12px ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial";
-        ctx.fillText("Load CSV to enable timeline.", 10, 22);
-        return;
-      }
-
-      const minTe = -state.padStartSec;
-      const maxTe = state.duration;
-
-      const span = state.spanSec;
-      const half = span/2;
-
-      const wMin = clamp(state.centerTe - half, minTe, maxTe);
-      const wMax = clamp(state.centerTe + half, minTe, maxTe);
-
-      const pad = 10;
-      const barY = 44;
-      const barH = 18;
-      const barX = pad;
-      const barW = w - 2*pad;
-
-      const xForTe = (te) => {
-        if (wMax <= wMin) return barX;
-        const u = (te - wMin) / (wMax - wMin);
-        return barX + u * barW;
-      };
-
-      ctx.save();
-      ctx.strokeStyle = "rgba(255,255,255,0.14)";
-      ctx.fillStyle = "rgba(255,255,255,0.05)";
-      roundRect(ctx, barX, barY, barW, barH, 10, true, true);
-
-      // negative pad shading
-      if (wMin < 0) {
-        const ax = xForTe(wMin);
-        const bx = xForTe(Math.min(0, wMax));
-        ctx.fillStyle = "rgba(255,255,255,0.03)";
-        roundRect(ctx, ax, barY, Math.max(0, bx-ax), barH, 10, true, false);
-      }
-
-      // video segment
-      if (state.vLoaded) {
-        const seg = videoSeg();
-        const clipA = clamp(seg.a, wMin, wMax);
-        const clipB = clamp(seg.b, wMin, wMax);
-        if (clipB > clipA) {
-          const ax = xForTe(clipA);
-          const bx = xForTe(clipB);
-          ctx.fillStyle = "rgba(103, 232, 249, 0.18)";
-          ctx.strokeStyle = "rgba(103, 232, 249, 0.55)";
-          roundRect(ctx, ax, barY, (bx-ax), barH, 10, true, true);
-        }
-        const playTe = (videoEl.currentTime || 0) + getOffsetSec();
-        if (playTe >= wMin && playTe <= wMax) {
-          const px = xForTe(playTe);
-          ctx.fillStyle = "rgba(103, 232, 249, 0.95)";
-          ctx.beginPath(); ctx.arc(px, barY + barH/2, 4.5, 0, Math.PI*2); ctx.fill();
-        }
-      }
-
-      // red center scrub line
-      const cx = barX + barW/2;
-      ctx.strokeStyle = "#ff3b30";
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      ctx.moveTo(cx, barY - 10);
-      ctx.lineTo(cx, barY + barH + 14);
+      ctx.moveTo(pa.x * w, pa.y * h);
+      ctx.lineTo(pb.x * w, pb.y * h);
       ctx.stroke();
+    }
+    // Draw keypoints
+    for (const lm of landmarks) {
+      if (lm.visibility < 0.3) continue;
+      ctx.beginPath();
+      ctx.arc(lm.x * w, lm.y * h, 4, 0, 2 * Math.PI);
+      ctx.fillStyle = lm.visibility > 0.7 ? '#00ff88' : '#88ffbb';
+      ctx.fill();
+      ctx.strokeStyle = '#004422';
+      ctx.lineWidth = 1;
+      ctx.stroke();
+    }
+  }
 
-      // labels
-      ctx.fillStyle = "rgba(255,255,255,0.65)";
-      ctx.font = "12px ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial";
-      ctx.textBaseline = "middle";
-      ctx.fillText(`${wMin.toFixed(1)}s`, barX, 22);
-      const rightLabel = `${wMax.toFixed(1)}s`;
-      const rW = ctx.measureText(rightLabel).width;
-      ctx.fillText(rightLabel, barX + barW - rW, 22);
+  function clearAllPoseCanvases() {
+    for (const [, c] of poseCanvases) {
+      const ctx = c.getContext('2d');
+      ctx.clearRect(0, 0, c.width, c.height);
+    }
+  }
 
-      ctx.restore();
-    }
-
-    // =========================
-    // Pan / zoom
-    // =========================
-    function secondsPerPixel(){
-      const rect = chartCanvas.getBoundingClientRect();
-      const w = Math.max(1, rect.width);
-      return state.spanSec / w;
-    }
-    function beginDrag(clientX){
-      state.dragging = true;
-      state.dragStartX = clientX;
-      state.dragStartCenter = state.centerTe;
-    }
-    function moveDrag(clientX){
-      if (!state.dragging || !state.points.length) return;
-      const dx = clientX - state.dragStartX;
-      const dSec = dx * secondsPerPixel();
-      state.centerTe = state.dragStartCenter - dSec;
-      applyWindow(false);
-      updateAtCenter(true);
-    }
-    function endDrag(){ state.dragging = false; }
-    function attachPanHandlers(el){
-      el.addEventListener("pointerdown", (e) => {
-        if (!state.points.length) return;
-        el.setPointerCapture(e.pointerId);
-        beginDrag(e.clientX);
+  async function initPose() {
+    if (mpPose) return;
+    try {
+      mpPose = new Pose({
+        locateFile: (f) => `https://cdn.jsdelivr.net/npm/@mediapipe/pose@0.5.1675469404/${f}`
       });
-      el.addEventListener("pointermove", (e) => moveDrag(e.clientX));
-      el.addEventListener("pointerup", endDrag);
-      el.addEventListener("pointercancel", endDrag);
+      mpPose.setOptions({
+        modelComplexity: 0, // lite model for speed
+        smoothLandmarks: true,
+        enableSegmentation: false,
+        minDetectionConfidence: 0.5,
+        minTrackingConfidence: 0.5
+      });
+      mpPose.onResults((results) => {
+        if (results._targetCanvas && results.poseLandmarks) {
+          drawSkeleton(results._targetCanvas, results.poseLandmarks);
+        } else if (results._targetCanvas) {
+          const ctx = results._targetCanvas.getContext('2d');
+          ctx.clearRect(0, 0, results._targetCanvas.width, results._targetCanvas.height);
+        }
+      });
+      await mpPose.initialize();
+      poseReady = true;
+    } catch (e) {
+      console.error('MediaPipe Pose init failed:', e);
+      poseReady = false;
     }
-    attachPanHandlers(chartCanvas);
-    attachPanHandlers(videoTimeline);
+  }
 
-    zoomInBtn.addEventListener("click", () => {
-      if (!state.points.length) return;
-      state.spanSec = clamp(state.spanSec * 0.6, 2, Math.max(2, state.duration + state.padStartSec));
-      applyWindow(true);
-      updateAtCenter(true);
-    });
-    zoomOutBtn.addEventListener("click", () => {
-      if (!state.points.length) return;
-      state.spanSec = clamp(state.spanSec / 0.6, 2, Math.max(2, state.duration + state.padStartSec));
-      applyWindow(true);
-      updateAtCenter(true);
-    });
-    centerZeroBtn.addEventListener("click", () => {
-      if (!state.points.length) return;
-      state.centerTe = 0;
-      applyWindow(true);
-      updateAtCenter(true);
-    });
-
-    // =========================
-    // Playback
-    // =========================
-    function setPlaying(on){
-      state.playing = on;
-      state.playLastTs = performance.now();
-      playPauseBtn.textContent = on ? "Pause" : "Play";
-      if (state.vLoaded) {
-        if (on && centerIsInVideo()) videoEl.play().catch(()=>{});
-        if (!on) videoEl.pause();
+  async function runPoseOnVideo(videoEl, container) {
+    if (!poseEnabled || !poseReady || !mpPose) return;
+    if (videoEl.paused || videoEl.ended || videoEl.readyState < 2) return;
+    if (videoEl.style.display === 'none') return;
+    const canvas = getOrCreatePoseCanvas(videoEl, container);
+    // Match canvas internal resolution to video
+    if (canvas.width !== videoEl.videoWidth || canvas.height !== videoEl.videoHeight) {
+      canvas.width = videoEl.videoWidth || 640;
+      canvas.height = videoEl.videoHeight || 480;
+    }
+    // Attach target canvas to results via a hack (MediaPipe doesn't support multiple streams easily)
+    mpPose._targetCanvas = canvas;
+    mpPose.onResults((results) => {
+      if (results.poseLandmarks) {
+        drawSkeleton(canvas, results.poseLandmarks);
+      } else {
+        const ctx = canvas.getContext('2d');
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
       }
+    });
+    try {
+      await mpPose.send({ image: videoEl });
+    } catch (e) { /* ignore frame errors */ }
+  }
+
+  // Pose toggle handler
+  document.getElementById('poseToggle').addEventListener('change', async function () {
+    poseEnabled = this.checked;
+    if (poseEnabled && !poseReady) {
+      this.disabled = true;
+      await initPose();
+      this.disabled = false;
+      if (!poseReady) { this.checked = false; poseEnabled = false; alert('Pose detection failed to load.'); }
     }
-    function stepCenter(dt){
-      if (!state.points.length) return;
-      state.centerTe = clamp(state.centerTe + dt, -state.padStartSec, state.duration);
-      applyWindow(true);
-      updateAtCenter(true);
-      if (state.vLoaded && state.playing && centerIsInVideo()) {
-        const vt = state.centerTe - getOffsetSec();
-        videoEl.currentTime = clamp(vt, 0, videoEl.duration);
-        videoEl.play().catch(()=>{});
-      }
+    if (!poseEnabled) clearAllPoseCanvases();
+  });
+
+  // ======================== File status ========================
+  function updateAllFileStatus() {
+    const parts = [];
+    function add(ds, color, label) {
+      ds.segments.forEach(seg => {
+        const tag = seg.loaded ? 'ok' : 'miss';
+        const icon = seg.loaded ? '&#10003;' : '&#10007;';
+        parts.push('<span class="' + tag + '">' + icon + ' ' + seg.name + ' <span style="color:' + color + ';">(' + label + ')</span></span>');
+      });
     }
-    playPauseBtn.addEventListener("click", () => {
-      if (!state.points.length) return;
-      setPlaying(!state.playing);
-    });
-    back10Btn.addEventListener("click", () => stepCenter(-10));
-    fwd10Btn.addEventListener("click", () => stepCenter(+10));
+    add(ds1, '#ef5350', 'Red');
+    add(ds2, '#42a5f5', 'Blue');
+    document.getElementById('fsAll').innerHTML = parts.join(' &nbsp; ');
+  }
+  updateAllFileStatus();
 
-    // =========================
-    // File inputs + settings
-    // =========================
-    function loadVideo(file){
-      // IMPORTANT: treat lastModified as video START time (best-effort)
-      state.videoStartAbsMs = Number.isFinite(file.lastModified) ? file.lastModified : null;
-
-      const url = URL.createObjectURL(file);
-      videoEl.src = url;
-      videoEl.load();
+  // ======================== Hide GoPro GPS toggle ========================
+  let goProGpsHidden = false;
+  document.getElementById('hideGoPro').addEventListener('change', function () {
+    goProGpsHidden = this.checked;
+    if (fadeMode) {
+      [greyMp41, greyMp42].forEach(l => {
+        if (!l) return;
+        if (goProGpsHidden) map.removeLayer(l); else map.addLayer(l);
+      });
+      [fadeMp41, fadeMp42].forEach(fs => {
+        if (goProGpsHidden) {
+          map.removeLayer(fs.ultraFadeIn); map.removeLayer(fs.fadeIn); map.removeLayer(fs.solid);
+          map.removeLayer(fs.fadeOut); map.removeLayer(fs.ultraFadeOut);
+        } else {
+          map.addLayer(fs.ultraFadeIn); map.addLayer(fs.fadeIn); map.addLayer(fs.solid);
+          map.addLayer(fs.fadeOut); map.addLayer(fs.ultraFadeOut);
+        }
+      });
+    } else {
+      [mp4Line1, mp4Line2].forEach(l => {
+        if (!l) return;
+        if (goProGpsHidden) map.removeLayer(l); else map.addLayer(l);
+      });
     }
-
-    videoEl.addEventListener("loadedmetadata", () => {
-      state.vLoaded = Number.isFinite(videoEl.duration) && videoEl.duration > 0;
-      state.vDuration = state.vLoaded ? videoEl.duration : NaN;
-
-      // try auto-align immediately if CSV already loaded
-      maybeAutoAlign("video");
-
-      drawVideoTimeline();
-      updateAtCenter(false);
+    [mp4Dot1, mp4Dot2].forEach(d => {
+      if (!d) return;
+      if (goProGpsHidden) d.setStyle({ opacity: 0, fillOpacity: 0 });
+      else d.setStyle({ opacity: 1, fillOpacity: 0.9 });
     });
+  });
 
-    videoFileEl.addEventListener("change", (e) => {
-      const f = e.target.files?.[0];
-      if (f) loadVideo(f);
-    });
+  // ======================== Fade tracks toggle ========================
+  document.getElementById('fadeTracks').addEventListener('change', function () {
+    fadeMode = this.checked;
+    if (fadeMode) enableFade(); else disableFade();
+  });
 
-    csvFileEl.addEventListener("change", async (e) => {
-      const f = e.target.files?.[0];
-      if (!f) return;
-      try { await loadCSV(f); }
-      catch (err) { showNotice(err?.message || String(err)); console.error(err); }
-    });
+  // ======================== Master clock ========================
+  let masterEpoch = epochMin;
+  let playing = false;
+  let lastTs = null;
 
-    btnFit.addEventListener("click", fitTrackBtn);
+  const ppBtn = document.getElementById('ppBtn');
+  const scrub = document.getElementById('scrub');
+  const tDisp = document.getElementById('tDisp');
 
-    // manual offset edits
-    offsetEl.addEventListener("input", () => {
-      drawVideoTimeline();
-      updateAtCenter(true);
-      if (state.vLoaded && state.points.length) updateVideoPlacementNotice();
-    });
+  scrub.max = totalDur.toFixed(1);
+  tDisp.textContent = '0:00 / ' + fmtElapsed(totalDur);
 
-    btnSetOffset.addEventListener("click", () => {
-      if (!state.vLoaded) return;
-      const vt = videoEl.currentTime || 0;
-      setOffsetSec(state.centerTe - vt);
-      drawVideoTimeline();
-      updateAtCenter(true);
-      if (state.points.length) updateVideoPlacementNotice();
-    });
+  function playAll() { playing = true; lastTs = null; ppBtn.innerHTML = '&#9646;&#9646; Pause'; }
+  function pauseAll() {
+    playing = false; lastTs = null;
+    ppBtn.innerHTML = '&#9654; Play';
+    ds1.segments.forEach(s => { if (s.el && !s.el.paused) s.el.pause(); });
+    ds2.segments.forEach(s => { if (s.el && !s.el.paused) s.el.pause(); });
+  }
+  ppBtn.addEventListener('click', () => { playing ? pauseAll() : playAll(); });
 
-    btnAutoAlign.addEventListener("click", () => {
-      maybeAutoAlign("button");
-    });
+  document.getElementById('bk10').addEventListener('click', () => {
+    if (playing) pauseAll();
+    masterEpoch = Math.max(epochMin, masterEpoch - 10);
+    syncUI();
+  });
+  document.getElementById('fw10').addEventListener('click', () => {
+    if (playing) pauseAll();
+    masterEpoch = Math.min(epochMax, masterEpoch + 10);
+    syncUI();
+  });
 
-    // timezone shift helpers
-    tzMinusBtn.addEventListener("click", () => {
-      const v = getTzShiftHours();
-      tzShiftEl.value = String(v - 1);
-    });
-    tzPlusBtn.addEventListener("click", () => {
-      const v = getTzShiftHours();
-      tzShiftEl.value = String(v + 1);
-    });
-    tzApplyBtn.addEventListener("click", () => {
-      // re-run auto-align using current tzShiftHours
-      maybeAutoAlign("tzApply");
-    });
+  document.addEventListener('keydown', e => {
+    if (e.code === 'Space' && e.target.tagName !== 'INPUT' && e.target.tagName !== 'TEXTAREA') {
+      e.preventDefault();
+      playing ? pauseAll() : playAll();
+    }
+  });
 
-    window.addEventListener("resize", () => {
-      applyWindow(true);
-      drawVideoTimeline();
-      try{ map.invalidateSize(); }catch(e){}
-    });
+  let scrubbing = false;
+  scrub.addEventListener('input', () => {
+    scrubbing = true;
+    if (playing) pauseAll();
+    masterEpoch = epochMin + parseFloat(scrub.value || '0');
+    syncUI();
+  });
+  scrub.addEventListener('change', () => { scrubbing = false; });
 
-    // =========================
-    // Main loop
-    // =========================
-    function loop(){
-      const now = performance.now();
+  // ======================== Sync logic ========================
+  function findActiveSeg(ds) {
+    for (let i = 0; i < ds.segments.length; i++) {
+      if (masterEpoch >= ds.segments[i].epochMin && masterEpoch <= ds.segments[i].epochMax)
+        return i;
+    }
+    return -1;
+  }
 
-      if (state.playing && state.points.length) {
-        const dt = (now - state.playLastTs)/1000;
-        state.playLastTs = now;
+  // Cooldown: don't re-seek during playback more than once per 2 seconds
+  const SEEK_COOLDOWN_MS = 2000;
 
-        state.centerTe = clamp(state.centerTe + dt, -state.padStartSec, state.duration);
-        applyWindow(false);
-        updateAtCenter(false);
-
-        // keep video synced only while center is inside segment (CSV keeps going after video ends)
-        if (state.vLoaded && centerIsInVideo()) {
-          const vt = state.centerTe - getOffsetSec();
-          if (videoEl.ended || Math.abs(videoEl.currentTime - vt) > 0.30) {
-            videoEl.currentTime = clamp(vt, 0, videoEl.duration);
+  function syncDataset(ds, blkEl) {
+    const ai = findActiveSeg(ds);
+    ds.segments.forEach((seg, i) => {
+      if (i === ai) {
+        seg.el.style.display = 'block';
+        if (seg.loaded && seg.el.readyState >= 1) {
+          const target = epochToVTime(seg.epochs, seg.vTimes, masterEpoch);
+          const drift = Math.abs(seg.el.currentTime - target);
+          if (playing) {
+            if (seg.el.paused) seg.el.play().catch(() => { });
+            // Only correct large drift, with cooldown to prevent seek storms
+            const now = performance.now();
+            const sinceLast = now - (seg._lastSeekTime || 0);
+            if (drift > 1.0 && sinceLast > SEEK_COOLDOWN_MS) {
+              seg.pSeek++;
+              seg.el.currentTime = target;
+              seg._lastSeekTime = now;
+            }
+          } else {
+            if (!seg.el.paused) seg.el.pause();
+            if (drift > 0.05) { seg.pSeek++; seg.el.currentTime = target; }
           }
-          if (videoEl.paused) videoEl.play().catch(()=>{});
         }
       } else {
-        // idle readouts
-        if (state.vLoaded) {
-          vRead.textContent = fmtClock(videoEl.currentTime);
-          inVidRead.textContent = centerIsInVideo() ? "IN VIDEO" : "outside video";
-        } else {
-          vRead.textContent = "—";
-          inVidRead.textContent = "no video";
-        }
+        seg.el.style.display = 'none';
+        if (!seg.el.paused) seg.el.pause();
+      }
+    });
+    blkEl.style.display = (ai >= 0) ? 'none' : 'flex';
+    return ai;
+  }
+
+  function updateArrow(marker, allPts, ep, isVak, track, eps) {
+    if (!marker) return;
+    const pos = isVak ? interpPos(track, eps, ep) : interpDsGps(allPts, ep);
+    const pts = isVak ? track : allPts;
+    if (pos) {
+      marker.setLatLng([pos.lat, pos.lon]);
+      marker.setOpacity(1);
+      const h = computeHeading(pts, ep);
+      if (h !== null) setArrowHeading(marker, h);
+    } else {
+      marker.setOpacity(0);
+    }
+  }
+  function updateDot(dot, allPts, ep) {
+    if (!dot) return;
+    if (goProGpsHidden) { dot.setStyle({ opacity: 0, fillOpacity: 0 }); return; }
+    const pos = interpDsGps(allPts, ep);
+    if (pos) { dot.setLatLng([pos.lat, pos.lon]); dot.setStyle({ opacity: 1, fillOpacity: 0.9 }); }
+    else { dot.setStyle({ opacity: 0, fillOpacity: 0 }); }
+  }
+
+  const oUTC = document.getElementById('oUTC');
+  const o1clip = document.getElementById('o1clip');
+  const o1gps = document.getElementById('o1gps');
+  const o1vak = document.getElementById('o1vak');
+  const o2clip = document.getElementById('o2clip');
+  const o2gps = document.getElementById('o2gps');
+  const o2vak = document.getElementById('o2vak');
+
+  function syncUI() {
+    if (!scrubbing) scrub.value = (masterEpoch - epochMin).toFixed(1);
+    tDisp.textContent = fmtElapsed(masterEpoch - epochMin) + ' / ' + fmtElapsed(totalDur);
+
+    const a1 = syncDataset(ds1, blk1);
+    const a2 = syncDataset(ds2, blk2);
+
+    updateDot(mp4Dot1, allGps1, masterEpoch);
+    updateArrow(vakArrow1, null, masterEpoch, true, vakTrack1, vakEpochs1);
+    updateDot(mp4Dot2, allGps2, masterEpoch);
+    updateArrow(vakArrow2, null, masterEpoch, true, vakTrack2, vakEpochs2);
+
+    if (fadeMode) updateFadeTracks(masterEpoch);
+
+    oUTC.textContent = fmtEpochUTC(masterEpoch);
+
+    if (a1 >= 0) {
+      const seg = ds1.segments[a1];
+      o1clip.textContent = seg.name + ' @ ' + epochToVTime(seg.epochs, seg.vTimes, masterEpoch).toFixed(1) + 's';
+      o1gps.textContent = fmtLL(interpDsGps(allGps1, masterEpoch));
+    } else { o1clip.textContent = '-'; o1gps.textContent = '-'; }
+    o1vak.textContent = fmtLL(interpPos(vakTrack1, vakEpochs1, masterEpoch));
+
+    if (a2 >= 0) {
+      const seg = ds2.segments[a2];
+      o2clip.textContent = seg.name + ' @ ' + epochToVTime(seg.epochs, seg.vTimes, masterEpoch).toFixed(1) + 's';
+      o2gps.textContent = fmtLL(interpDsGps(allGps2, masterEpoch));
+    } else { o2clip.textContent = '-'; o2gps.textContent = '-'; }
+    o2vak.textContent = fmtLL(interpPos(vakTrack2, vakEpochs2, masterEpoch));
+  }
+
+  // ======================== Animation loop ========================
+  function tick(ts) {
+    if (playing) {
+      if (lastTs !== null) {
+        masterEpoch += (ts - lastTs) / 1000;
+        if (masterEpoch >= epochMax) { masterEpoch = epochMax; pauseAll(); }
+      }
+      lastTs = ts;
+    }
+    syncUI();
+
+    // Run pose detection at capped rate
+    if (poseEnabled && poseReady) {
+      const now = performance.now();
+      if (now - lastPoseTime > 1000 / POSE_FPS) {
+        lastPoseTime = now;
+        const a1 = findActiveSeg(ds1);
+        const a2 = findActiveSeg(ds2);
+        if (a1 >= 0) runPoseOnVideo(ds1.segments[a1].el, vc1);
+        if (a2 >= 0) runPoseOnVideo(ds2.segments[a2].el, vc2);
+      }
+    }
+
+    requestAnimationFrame(tick);
+  }
+  requestAnimationFrame(tick);
+  syncUI();
+
+  // ======================== SOG timeseries chart ========================
+  (function () {
+    function buildSog(track) {
+      const pts = [];
+      for (const p of track) {
+        if (p.sog !== undefined && p.sog !== null && isFinite(p.sog))
+          pts.push({ ts: p.ts, sog: p.sog });
+      }
+      pts.sort((a, b) => a.ts - b.ts);
+      return pts;
+    }
+
+    const sog1 = buildSog(vakTrack1);
+    const sog2 = buildSog(vakTrack2);
+    if (sog1.length === 0 && sog2.length === 0) return;
+
+    const sogBar = document.getElementById('sogBar');
+    sogBar.style.display = '';
+
+    const canvas = document.getElementById('sogCanvas');
+    const ctx = canvas.getContext('2d');
+
+    let sogMax = 0;
+    for (const p of sog1) sogMax = Math.max(sogMax, p.sog);
+    for (const p of sog2) sogMax = Math.max(sogMax, p.sog);
+    if (sogMax <= 0) sogMax = 1;
+    sogMax *= 1.1;
+
+    let sogZoom = 1;
+    let sogViewLo = epochMin;
+    let sogViewHi = epochMax;
+
+    function updateView() {
+      const span = totalDur / sogZoom;
+      let center = masterEpoch;
+      let lo = center - span / 2;
+      let hi = center + span / 2;
+      if (lo < epochMin) { lo = epochMin; hi = lo + span; }
+      if (hi > epochMax) { hi = epochMax; lo = hi - span; }
+      sogViewLo = Math.max(lo, epochMin);
+      sogViewHi = Math.min(hi, epochMax);
+    }
+
+    const offCanvas = document.createElement('canvas');
+    const offCtx = offCanvas.getContext('2d');
+
+    function resizeCanvas() {
+      const rect = canvas.getBoundingClientRect();
+      const dpr = window.devicePixelRatio || 1;
+      canvas.width = rect.width * dpr;
+      canvas.height = rect.height * dpr;
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      renderStatic();
+      drawCursor();
+    }
+
+    function renderStatic() {
+      updateView();
+      const rect = canvas.getBoundingClientRect();
+      const W = rect.width, H = rect.height;
+      const dpr = window.devicePixelRatio || 1;
+      offCanvas.width = canvas.width;
+      offCanvas.height = canvas.height;
+      offCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      const vSpan = sogViewHi - sogViewLo;
+
+      offCtx.fillStyle = '#0b1220';
+      offCtx.fillRect(0, 0, W, H);
+
+      offCtx.strokeStyle = 'rgba(255,255,255,0.06)';
+      offCtx.lineWidth = 1;
+      for (let i = 1; i <= 2; i++) {
+        const y = H - (i / 3) * H;
+        offCtx.beginPath(); offCtx.moveTo(0, y); offCtx.lineTo(W, y); offCtx.stroke();
       }
 
-      state.raf = requestAnimationFrame(loop);
+      offCtx.fillStyle = 'rgba(255,255,255,0.3)';
+      offCtx.font = '9px monospace';
+      offCtx.textBaseline = 'bottom';
+      offCtx.fillText((sogMax / 1.1).toFixed(1) + ' m/s', 3, 12);
+      if (sogZoom > 1) {
+        offCtx.textBaseline = 'top';
+        offCtx.fillText(sogZoom + 'x', W - 30, 3);
+      }
+
+      function drawLine(pts, color) {
+        if (pts.length < 2) return;
+        offCtx.strokeStyle = color;
+        offCtx.lineWidth = 1;
+        offCtx.globalAlpha = 0.8;
+        offCtx.beginPath();
+        for (let i = 0; i < pts.length; i++) {
+          const x = ((pts[i].ts - sogViewLo) / vSpan) * W;
+          const y = H - (pts[i].sog / sogMax) * H;
+          if (i === 0) offCtx.moveTo(x, y); else offCtx.lineTo(x, y);
+        }
+        offCtx.stroke();
+        offCtx.globalAlpha = 1;
+      }
+      drawLine(sog1, '#e53935');
+      drawLine(sog2, '#42a5f5');
     }
-    state.playLastTs = performance.now();
-    state.raf = requestAnimationFrame(loop);
-  </script>
+
+    function drawCursor() {
+      const W = canvas.getBoundingClientRect().width;
+      const H = canvas.getBoundingClientRect().height;
+      const vSpan = sogViewHi - sogViewLo;
+      ctx.clearRect(0, 0, W, H);
+      const dpr = window.devicePixelRatio || 1;
+      ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.drawImage(offCanvas, 0, 0);
+      ctx.restore();
+
+      const cx = ((masterEpoch - sogViewLo) / vSpan) * W;
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth = 1;
+      ctx.globalAlpha = 0.7;
+      ctx.beginPath(); ctx.moveTo(cx, 0); ctx.lineTo(cx, H); ctx.stroke();
+      ctx.globalAlpha = 1;
+    }
+
+    window.addEventListener('resize', resizeCanvas);
+    setTimeout(resizeCanvas, 100);
+
+    const origSyncUI = syncUI;
+    syncUI = function () {
+      origSyncUI();
+      if (sogZoom > 1) renderStatic();
+      drawCursor();
+    };
+
+    document.getElementById('sogZoomIn').addEventListener('click', () => {
+      sogZoom = Math.min(sogZoom * 2, 64);
+      renderStatic(); drawCursor();
+    });
+    document.getElementById('sogZoomOut').addEventListener('click', () => {
+      sogZoom = Math.max(sogZoom / 2, 1);
+      renderStatic(); drawCursor();
+    });
+    document.getElementById('sogZoomReset').addEventListener('click', () => {
+      sogZoom = 1;
+      renderStatic(); drawCursor();
+    });
+
+    let sogDragging = false;
+    function sogScrub(e) {
+      const rect = canvas.getBoundingClientRect();
+      const frac = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+      const vSpan = sogViewHi - sogViewLo;
+      masterEpoch = sogViewLo + frac * vSpan;
+      masterEpoch = Math.max(epochMin, Math.min(epochMax, masterEpoch));
+      if (playing) pauseAll();
+      syncUI();
+    }
+    canvas.addEventListener('mousedown', e => { sogDragging = true; sogScrub(e); });
+    window.addEventListener('mousemove', e => { if (sogDragging) sogScrub(e); });
+    window.addEventListener('mouseup', () => { sogDragging = false; });
+
+    canvas.addEventListener('touchstart', e => {
+      sogDragging = true;
+      sogScrub(e.touches[0]);
+      e.preventDefault();
+    }, { passive: false });
+    canvas.addEventListener('touchmove', e => {
+      if (sogDragging) { sogScrub(e.touches[0]); e.preventDefault(); }
+    }, { passive: false });
+    canvas.addEventListener('touchend', () => { sogDragging = false; });
+  })();
+}
+</script>
 </body>
 </html>
