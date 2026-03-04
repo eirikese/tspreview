@@ -1601,43 +1601,48 @@ function launchViewer(ds1, ds2, mp4FileMap, singleMode, name1, name2) {
   if (vakLine2) vakLine2.on('click', e => onTrackClick(vakTrack2, e));
 
   // ======================== Create <video> elements ========================
-  function createVidEls(ds, container, blk) {
-    ds.segments.forEach((seg, i) => {
-      const v = document.createElement('video');
-      v.setAttribute('playsinline', '');
-      v.setAttribute('webkit-playsinline', '');
-      v.preload = 'auto';
-      container.insertBefore(v, blk);
-      seg.el = v;
-      seg.pSeek = 0;
+  // iPad Safari supports only ~2-4 hardware video decoders.
+  // We use ONE <video> element per athlete (not per segment) and swap the
+  // blob-URL source only when the active segment changes.
+  function setupVideoForDs(ds, container, blk) {
+    const v = document.createElement('video');
+    v.setAttribute('playsinline', '');
+    v.setAttribute('webkit-playsinline', '');
+    v.preload = 'auto';
+    v.style.visibility = 'hidden';
+    container.insertBefore(v, blk);
+    ds._vid = v;
+    ds._activeIdx = -1;
 
-      // Store blob URL but DON'T set it on the element yet.
-      // iPad Safari can only handle ~2-4 active video decoders;
-      // loading all clips simultaneously crashes the page.
+    // Build blob URLs for every segment
+    ds.segments.forEach((seg) => {
+      seg.pSeek = 0;
       const key = seg.name.toLowerCase();
       if (mp4FileMap[key]) {
         seg.blobUrl = URL.createObjectURL(mp4FileMap[key]);
         seg.loaded = true;
       }
+    });
 
-      // When metadata loaded, finalize vTimes from video duration
-      v.addEventListener('loadedmetadata', () => {
-        if (!seg.durationKnown && v.duration && isFinite(v.duration)) {
-          seg.durationKnown = true;
-          const dur = v.duration;
-          seg.vTimes = seg.gps.map(p => (p.fileProgress || 0) * dur);
-          seg.gps.forEach((p, idx) => { p.t = seg.vTimes[idx]; });
-        }
-      });
+    v.addEventListener('loadedmetadata', () => {
+      const seg = ds.segments[ds._activeIdx];
+      if (seg && !seg.durationKnown && v.duration && isFinite(v.duration)) {
+        seg.durationKnown = true;
+        const dur = v.duration;
+        seg.vTimes = seg.gps.map(p => (p.fileProgress || 0) * dur);
+        seg.gps.forEach((p, idx) => { p.t = seg.vTimes[idx]; });
+      }
+    });
 
-      v.addEventListener('seeked', () => {
-        if (seg.pSeek > 0) { seg.pSeek--; return; }
-        if (!playing && v.readyState >= 1) {
-          masterEpoch = vTimeToEpoch(seg.epochs, seg.vTimes, v.currentTime);
-          masterEpoch = Math.max(epochMin, Math.min(epochMax, masterEpoch));
-          syncUI();
-        }
-      });
+    v.addEventListener('seeked', () => {
+      const seg = ds.segments[ds._activeIdx];
+      if (!seg) return;
+      if (seg.pSeek > 0) { seg.pSeek--; return; }
+      if (!playing && v.readyState >= 1) {
+        masterEpoch = vTimeToEpoch(seg.epochs, seg.vTimes, v.currentTime);
+        masterEpoch = Math.max(epochMin, Math.min(epochMax, masterEpoch));
+        syncUI();
+      }
     });
   }
 
@@ -1645,8 +1650,8 @@ function launchViewer(ds1, ds2, mp4FileMap, singleMode, name1, name2) {
   const vc2 = document.getElementById('vc2');
   const blk1 = document.getElementById('blk1');
   const blk2 = document.getElementById('blk2');
-  createVidEls(ds1, vc1, blk1);
-  createVidEls(ds2, vc2, blk2);
+  setupVideoForDs(ds1, vc1, blk1);
+  setupVideoForDs(ds2, vc2, blk2);
 
   // ======================== MediaPipe Pose Detection ========================
   let poseEnabled = false;
@@ -1852,22 +1857,18 @@ function launchViewer(ds1, ds2, mp4FileMap, singleMode, name1, name2) {
   function playAll() {
     playing = true; lastTs = null;
     ppBtn.innerHTML = '&#9646;&#9646; Pause';
-    // Play active segments directly within user-gesture context (critical for iOS)
+    // Play active videos directly within user-gesture context (critical for iOS)
     [ds1, ds2].forEach(ds => {
-      const ai = findActiveSeg(ds);
-      if (ai >= 0) {
-        const seg = ds.segments[ai];
-        if (seg.el && seg.loaded && seg.el.paused) {
-          seg.el.play().catch(() => {});
-        }
+      if (ds._activeIdx >= 0 && ds._vid.paused) {
+        ds._vid.play().catch(() => {});
       }
     });
   }
   function pauseAll() {
     playing = false; lastTs = null;
     ppBtn.innerHTML = '&#9654; Play';
-    ds1.segments.forEach(s => { if (s.el && !s.el.paused) s.el.pause(); });
-    ds2.segments.forEach(s => { if (s.el && !s.el.paused) s.el.pause(); });
+    if (!ds1._vid.paused) ds1._vid.pause();
+    if (!ds2._vid.paused) ds2._vid.pause();
   }
   ppBtn.addEventListener('click', () => { playing ? pauseAll() : playAll(); });
 
@@ -1921,54 +1922,45 @@ function launchViewer(ds1, ds2, mp4FileMap, singleMode, name1, name2) {
   // Cooldown: don't re-seek during playback more than once per 2 seconds
   const SEEK_COOLDOWN_MS = 2000;
 
-  // Activate a segment's video source (lazy loading for iPad compatibility)
-  function activateSegSrc(seg) {
-    if (seg.loaded && seg.blobUrl && seg.el.src !== seg.blobUrl) {
-      seg.el.src = seg.blobUrl;
-      seg.el.load();
-    }
-  }
-  // Release a segment's video source to free the hardware decoder
-  function deactivateSegSrc(seg) {
-    if (seg.el.src) {
-      seg.el.pause();
-      seg.el.removeAttribute('src');
-      seg.el.load(); // release decoder
-    }
-  }
-
   function syncDataset(ds, blkEl) {
     const ai = findActiveSeg(ds);
-    ds.segments.forEach((seg, i) => {
-      if (i === ai) {
-        seg.el.style.visibility = 'visible';
-        seg.el.style.zIndex = '2';
-        // Lazy-attach video source
-        activateSegSrc(seg);
-        if (seg.loaded && seg.el.readyState >= 1) {
-          const target = epochToVTime(seg.epochs, seg.vTimes, masterEpoch);
-          const drift = Math.abs(seg.el.currentTime - target);
-          if (playing) {
-            if (seg.el.paused) seg.el.play().catch(() => { });
-            const now = performance.now();
-            const sinceLast = now - (seg._lastSeekTime || 0);
-            if (drift > 1.0 && sinceLast > SEEK_COOLDOWN_MS) {
-              seg.pSeek++;
-              seg.el.currentTime = target;
-              seg._lastSeekTime = now;
-            }
-          } else {
-            if (!seg.el.paused) seg.el.pause();
-            if (drift > 0.05) { seg.pSeek++; seg.el.currentTime = target; }
-          }
+    const v = ds._vid;
+
+    if (ai >= 0) {
+      const seg = ds.segments[ai];
+      v.style.visibility = 'visible';
+
+      // Swap source only when the active segment changes
+      if (ds._activeIdx !== ai) {
+        ds._activeIdx = ai;
+        if (seg.loaded && seg.blobUrl) {
+          v.src = seg.blobUrl;
+          v.load();
         }
-      } else {
-        seg.el.style.visibility = 'hidden';
-        seg.el.style.zIndex = '0';
-        // Release inactive video decoders to stay within iPad limits
-        deactivateSegSrc(seg);
       }
-    });
+
+      if (seg.loaded && v.readyState >= 1) {
+        const target = epochToVTime(seg.epochs, seg.vTimes, masterEpoch);
+        const drift = Math.abs(v.currentTime - target);
+        if (playing) {
+          if (v.paused) v.play().catch(() => { });
+          const now = performance.now();
+          const sinceLast = now - (seg._lastSeekTime || 0);
+          if (drift > 1.0 && sinceLast > SEEK_COOLDOWN_MS) {
+            seg.pSeek++;
+            v.currentTime = target;
+            seg._lastSeekTime = now;
+          }
+        } else {
+          if (!v.paused) v.pause();
+          if (drift > 0.05) { seg.pSeek++; v.currentTime = target; }
+        }
+      }
+    } else {
+      v.style.visibility = 'hidden';
+      if (!v.paused) v.pause();
+      ds._activeIdx = -1;
+    }
     blkEl.style.display = (ai >= 0) ? 'none' : 'flex';
     return ai;
   }
@@ -2051,8 +2043,8 @@ function launchViewer(ds1, ds2, mp4FileMap, singleMode, name1, name2) {
         lastPoseTime = now;
         const a1 = findActiveSeg(ds1);
         const a2 = findActiveSeg(ds2);
-        if (a1 >= 0) runPoseOnVideo(ds1.segments[a1].el, vc1);
-        if (a2 >= 0) runPoseOnVideo(ds2.segments[a2].el, vc2);
+        if (a1 >= 0) runPoseOnVideo(ds1._vid, vc1);
+        if (a2 >= 0) runPoseOnVideo(ds2._vid, vc2);
       }
     }
 
