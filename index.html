@@ -1609,12 +1609,14 @@ function launchViewer(ds1, ds2, mp4FileMap, singleMode, name1, name2) {
       v.preload = 'auto';
       container.insertBefore(v, blk);
       seg.el = v;
+      seg.pSeek = 0;
 
-      // Load video from mp4FileMap
+      // Store blob URL but DON'T set it on the element yet.
+      // iPad Safari can only handle ~2-4 active video decoders;
+      // loading all clips simultaneously crashes the page.
       const key = seg.name.toLowerCase();
       if (mp4FileMap[key]) {
-        v.src = URL.createObjectURL(mp4FileMap[key]);
-        v.load();
+        seg.blobUrl = URL.createObjectURL(mp4FileMap[key]);
         seg.loaded = true;
       }
 
@@ -1623,17 +1625,13 @@ function launchViewer(ds1, ds2, mp4FileMap, singleMode, name1, name2) {
         if (!seg.durationKnown && v.duration && isFinite(v.duration)) {
           seg.durationKnown = true;
           const dur = v.duration;
-          // Recompute vTimes from fileProgress * duration
           seg.vTimes = seg.gps.map(p => (p.fileProgress || 0) * dur);
-          // Also update the t values in gps array for consistency
           seg.gps.forEach((p, idx) => { p.t = seg.vTimes[idx]; });
         }
       });
 
       v.addEventListener('seeked', () => {
-        // Ignore programmatic seeks (from sync logic)
         if (seg.pSeek > 0) { seg.pSeek--; return; }
-        // Only update master clock from manual user scrubs (when paused)
         if (!playing && v.readyState >= 1) {
           masterEpoch = vTimeToEpoch(seg.epochs, seg.vTimes, v.currentTime);
           masterEpoch = Math.max(epochMin, Math.min(epochMax, masterEpoch));
@@ -1923,18 +1921,35 @@ function launchViewer(ds1, ds2, mp4FileMap, singleMode, name1, name2) {
   // Cooldown: don't re-seek during playback more than once per 2 seconds
   const SEEK_COOLDOWN_MS = 2000;
 
+  // Activate a segment's video source (lazy loading for iPad compatibility)
+  function activateSegSrc(seg) {
+    if (seg.loaded && seg.blobUrl && seg.el.src !== seg.blobUrl) {
+      seg.el.src = seg.blobUrl;
+      seg.el.load();
+    }
+  }
+  // Release a segment's video source to free the hardware decoder
+  function deactivateSegSrc(seg) {
+    if (seg.el.src) {
+      seg.el.pause();
+      seg.el.removeAttribute('src');
+      seg.el.load(); // release decoder
+    }
+  }
+
   function syncDataset(ds, blkEl) {
     const ai = findActiveSeg(ds);
     ds.segments.forEach((seg, i) => {
       if (i === ai) {
         seg.el.style.visibility = 'visible';
         seg.el.style.zIndex = '2';
+        // Lazy-attach video source
+        activateSegSrc(seg);
         if (seg.loaded && seg.el.readyState >= 1) {
           const target = epochToVTime(seg.epochs, seg.vTimes, masterEpoch);
           const drift = Math.abs(seg.el.currentTime - target);
           if (playing) {
             if (seg.el.paused) seg.el.play().catch(() => { });
-            // Only correct large drift, with cooldown to prevent seek storms
             const now = performance.now();
             const sinceLast = now - (seg._lastSeekTime || 0);
             if (drift > 1.0 && sinceLast > SEEK_COOLDOWN_MS) {
@@ -1950,7 +1965,8 @@ function launchViewer(ds1, ds2, mp4FileMap, singleMode, name1, name2) {
       } else {
         seg.el.style.visibility = 'hidden';
         seg.el.style.zIndex = '0';
-        if (!seg.el.paused) seg.el.pause();
+        // Release inactive video decoders to stay within iPad limits
+        deactivateSegSrc(seg);
       }
     });
     blkEl.style.display = (ai >= 0) ? 'none' : 'flex';
