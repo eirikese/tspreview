@@ -1606,16 +1606,14 @@ function launchViewer(ds1, ds2, mp4FileMap, singleMode, name1, name2) {
       const v = document.createElement('video');
       v.setAttribute('playsinline', '');
       v.setAttribute('webkit-playsinline', '');
-      v.preload = 'metadata';
+      v.preload = 'auto';
       container.insertBefore(v, blk);
       seg.el = v;
 
-      // Load video from mp4FileMap — use typed Blob for iOS compatibility
+      // Load video from mp4FileMap
       const key = seg.name.toLowerCase();
       if (mp4FileMap[key]) {
-        const file = mp4FileMap[key];
-        const blob = new Blob([file], { type: file.type || 'video/mp4' });
-        v.src = URL.createObjectURL(blob);
+        v.src = URL.createObjectURL(mp4FileMap[key]);
         v.load();
         seg.loaded = true;
       }
@@ -1853,36 +1851,15 @@ function launchViewer(ds1, ds2, mp4FileMap, singleMode, name1, name2) {
   scrub.max = totalDur.toFixed(1);
   tDisp.textContent = '0:00 / ' + fmtElapsed(totalDur);
 
-  // ======================== iOS video unlock ========================
-  // iOS Safari requires a user-gesture-initiated play() to "unlock"
-  // each video element for future programmatic playback.
-  let iosUnlocked = false;
-  function unlockAllVideos() {
-    if (iosUnlocked) return;
-    iosUnlocked = true;
-    const allSegs = [...ds1.segments, ...ds2.segments];
-    allSegs.forEach(seg => {
-      if (seg.el && seg.loaded) {
-        seg.el.muted = true;
-        const p = seg.el.play();
-        if (p && p.then) p.then(() => { seg.el.pause(); seg.el.muted = false; }).catch(() => { seg.el.muted = false; });
-      }
-    });
-  }
-  // Unlock on first touch/click anywhere
-  document.addEventListener('touchstart', unlockAllVideos, { once: true });
-  document.addEventListener('click', unlockAllVideos, { once: true });
-
   function playAll() {
-    unlockAllVideos();
     playing = true; lastTs = null;
     ppBtn.innerHTML = '&#9646;&#9646; Pause';
-    // Directly play active segments within user-gesture context (critical for iOS)
+    // Play active segments directly within user-gesture context (critical for iOS)
     [ds1, ds2].forEach(ds => {
       const ai = findActiveSeg(ds);
       if (ai >= 0) {
         const seg = ds.segments[ai];
-        if (seg.el && seg.loaded && seg.el.readyState >= 1 && seg.el.paused) {
+        if (seg.el && seg.loaded && seg.el.paused) {
           seg.el.play().catch(() => {});
         }
       }
