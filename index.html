@@ -2,8 +2,16 @@
 <html lang="en">
 <head>
   <meta charset="utf-8"/>
-  <meta name="viewport" content="width=device-width,initial-scale=1"/>
-  <title>Dual Athlete Viewer — Standalone (No Python / No ExifTool)</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover"/>
+  <title>Dual Athlete Viewer</title>
+
+  <!-- PWA / iOS Home-Screen -->
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="DualViewer">
+  <meta name="theme-color" content="#0b0f14">
+  <meta name="application-name" content="DualViewer">
 
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -16,7 +24,12 @@
   <style>
     *,*::before,*::after{box-sizing:border-box;}
     html,body{height:100%;margin:0;background:#0b0f14;color:#e6edf3;
-      font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;}
+      font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
+      -webkit-tap-highlight-color:transparent;
+      -webkit-touch-callout:none;
+      overscroll-behavior:none;}
+    /* Safe-area inset for notched iPads */
+    body{padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);}
 
     /* ===== SETUP PHASE ===== */
     #setupPhase{max-width:900px;margin:40px auto;padding:20px;}
@@ -134,8 +147,8 @@
     .sog-bar{grid-column:1/-1;background:#111826;border:1px solid #223047;
       border-radius:10px;padding:6px 12px;display:flex;flex-direction:column;gap:2px;}
     .sog-bar .sog-label{font-size:10px;opacity:0.6;}
-    #sogCanvas{width:100%;height:80px;border-radius:4px;cursor:crosshair;display:block;}
-    #coverageCanvas{width:100%;height:14px;border-radius:3px;display:block;margin-top:2px;}
+    #sogCanvas{width:100%;height:80px;border-radius:4px;cursor:crosshair;display:block;touch-action:none;}
+    #coverageCanvas{width:100%;height:14px;border-radius:3px;display:block;margin-top:2px;touch-action:none;}
   </style>
 </head>
 <body>
@@ -1592,6 +1605,8 @@ function launchViewer(ds1, ds2, mp4FileMap, singleMode, name1, name2) {
     ds.segments.forEach((seg, i) => {
       const v = document.createElement('video');
       v.setAttribute('playsinline', '');
+      v.setAttribute('webkit-playsinline', '');
+      v.muted = true;
       v.preload = 'auto';
       container.insertBefore(v, blk);
       seg.el = v;
@@ -2230,6 +2245,47 @@ function launchViewer(ds1, ds2, mp4FileMap, singleMode, name1, name2) {
     canvas.addEventListener('touchend', () => { sogDragging = false; });
   })();
 }
+// ======================== Inline PWA manifest + Service Worker ========================
+(function(){
+  var manifest = {
+    name: 'Dual Athlete Viewer',
+    short_name: 'DualViewer',
+    description: 'Self-contained dual-athlete GoPro GPS & video viewer',
+    start_url: location.href,
+    scope: '.',
+    display: 'standalone',
+    orientation: 'landscape',
+    background_color: '#0b0f14',
+    theme_color: '#0b0f14',
+    icons: []
+  };
+  var blob = new Blob([JSON.stringify(manifest)], {type:'application/manifest+json'});
+  var link = document.createElement('link');
+  link.rel = 'manifest';
+  link.href = URL.createObjectURL(blob);
+  document.head.appendChild(link);
+
+  // Inline service worker — caches CDN assets for offline use
+  if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
+    var swCode = [
+      "const CN='dual-viewer-v1';",
+      "const CDN=['unpkg.com','cdn.jsdelivr.net'];",
+      "self.addEventListener('install',e=>{self.skipWaiting();});",
+      "self.addEventListener('activate',e=>{e.waitUntil(caches.keys().then(k=>Promise.all(k.filter(x=>x!==CN).map(x=>caches.delete(x)))));self.clients.claim();});",
+      "self.addEventListener('fetch',e=>{",
+      "  var u=new URL(e.request.url);",
+      "  if(u.protocol==='blob:'||u.protocol==='data:')return;",
+      "  if(CDN.some(h=>u.hostname.includes(h))){",
+      "    e.respondWith(caches.match(e.request).then(c=>{if(c)return c;return fetch(e.request).then(r=>{if(r.ok){var cl=r.clone();caches.open(CN).then(ca=>ca.put(e.request,cl));}return r;});}));",
+      "    return;",
+      "  }",
+      "  e.respondWith(fetch(e.request).then(r=>{if(r.ok&&e.request.method==='GET'){var cl=r.clone();caches.open(CN).then(ca=>ca.put(e.request,cl));}return r;}).catch(()=>caches.match(e.request)));",
+      "});"
+    ].join('\n');
+    var swBlob = new Blob([swCode], {type:'application/javascript'});
+    navigator.serviceWorker.register(URL.createObjectURL(swBlob)).catch(function(){});
+  }
+})();
 </script>
 </body>
 </html>
