@@ -679,15 +679,41 @@ function readFileText(file) {
 }
 
 // ================================================================
-//                    CLIP MATCHING (GPS-based, no filenames)
+//                    CLIP MATCHING (GPS + time based)
 // ================================================================
 
-/** Average GPS distance in metres between a clip's track and a CSV's track (time-matched) */
+/** UTC day string from epoch seconds, e.g. "2026-02-13" */
+function epochToDay(ep) {
+  return new Date(ep * 1000).toISOString().substring(0, 10);
+}
+
+/** Check if a clip's time range overlaps a CSV's time range (same UTC day, within 1h margin) */
+function clipOverlapsCsv(clip, csvEntry) {
+  if (clip.track.length === 0 || csvEntry.epochs.length === 0) return false;
+  const clipMin = clip.track[0].ts;
+  const clipMax = clip.track[clip.track.length - 1].ts;
+  const csvMin = csvEntry.epochs[0];
+  const csvMax = csvEntry.epochs[csvEntry.epochs.length - 1];
+  // Require same UTC day
+  const clipDay = epochToDay((clipMin + clipMax) / 2);
+  const csvDay = epochToDay((csvMin + csvMax) / 2);
+  if (clipDay !== csvDay) return false;
+  // Require time overlap (with 1h margin for GPS clock drift)
+  const margin = 3600;
+  return clipMin <= csvMax + margin && clipMax >= csvMin - margin;
+}
+
+/**
+ * Average GPS distance in metres between a clip's track and a CSV's track.
+ * Only considers time-overlapping points (within 60s). Returns Infinity if
+ * the clip doesn't overlap the CSV's time window at all.
+ */
 function clipDistToCsv(clip, csvEntry) {
+  if (!clipOverlapsCsv(clip, csvEntry)) return Infinity;
+
   const csvEpochs = csvEntry.epochs;
   const csvTrack = csvEntry.track;
   const n = csvEpochs.length;
-  if (n === 0) return Infinity;
 
   let totalD = 0, count = 0;
   for (const pt of clip.track) {
@@ -697,7 +723,7 @@ function clipDistToCsv(clip, csvEntry) {
     if (lo > 0 && Math.abs(csvEpochs[lo - 1] - pt.ts) < Math.abs(csvEpochs[bestI] - pt.ts)) {
       bestI = lo - 1;
     }
-    if (Math.abs(csvEpochs[bestI] - pt.ts) > 300) continue;
+    if (Math.abs(csvEpochs[bestI] - pt.ts) > 60) continue; // tight 60s window
     const cp = csvTrack[bestI];
     const dlat = (pt.lat - cp.lat) * 111320;
     const dlon = (pt.lon - cp.lon) * 111320 * Math.cos(pt.lat * Math.PI / 180);
@@ -864,51 +890,118 @@ btnProcess.addEventListener('click', async () => {
           continue;
         }
         const epochs = vak.track.map(p => p.ts);
+        const dayStr = epochToDay(epochs[Math.floor(epochs.length / 2)]);
         csvData.push({ file: csvFile, name: csvFile.name, vak, track: vak.track, epochs });
-        log(`  ✓ ${vak.track.length} points`, 'ok');
+        log(`  ✓ ${vak.track.length} points (${dayStr})`, 'ok');
       } catch (e) {
         log(`  ✗ ${csvFile.name}: ${e.message}`, 'err');
       }
     }
 
-    // ---- Phase 3: Assign clips to athletes (GPS-proximity to CSV reference tracks) ----
-    log(`\nPhase 3: Assigning ${clipData.length} clip(s) to athletes...`, 'info');
+    // ---- Phase 3: Match clips to CSVs by time + GPS proximity ----
+    log(`\nPhase 3: Matching ${clipData.length} clip(s) to ${csvData.length} CSV(s)...`, 'info');
 
     let group1 = [], group2 = [];
     let vak1Data, vak2Data;
 
     if (csvData.length >= 2) {
-      // 2+ CSVs → assign each clip to its nearest CSV by GPS proximity
-      log(`  ${csvData.length} CSV reference tracks loaded — matching each clip by GPS proximity`);
-      for (const clip of clipData) {
-        // Measure distance to each CSV
-        const dists = csvData.map(ce => clipDistToCsv(clip, ce));
-        const bestIdx = dists.indexOf(Math.min(...dists));
-        const distStr = csvData.map((ce, i) => `${ce.name}=${dists[i] === Infinity ? '∞' : dists[i].toFixed(0) + 'm'}`).join('  ');
-        // Assign to group based on which CSV is closest
-        // CSV 0 → Athlete 1 (Red), CSV 1 → Athlete 2 (Blue)
-        if (bestIdx === 0) {
-          group1.push(clip);
-          log(`    ${clip.name}: ${distStr} → Athlete 1 (Red)`);
-        } else {
-          group2.push(clip);
-          log(`    ${clip.name}: ${distStr} → Athlete 2 (Blue)`);
+      // Compute distance matrix: clipData × csvData
+      // Only clips on the same UTC day with time overlap will get a finite distance
+      const distMatrix = clipData.map(clip =>
+        csvData.map(csv => clipDistToCsv(clip, csv))
+      );
+
+      // For each CSV, count how many clips have a finite (time-overlapping) match
+      const csvMatchCounts = csvData.map((_, ci) =>
+        distMatrix.filter(row => isFinite(row[ci])).length
+      );
+
+      // Log CSV summary
+      for (let ci = 0; ci < csvData.length; ci++) {
+        const ce = csvData[ci];
+        const dayStr = epochToDay(ce.epochs[Math.floor(ce.epochs.length / 2)]);
+        log(`  CSV ${ci + 1}: ${ce.name} — ${dayStr} — ${csvMatchCounts[ci]} clip(s) match`);
+      }
+
+      // Pick the best pair of CSVs: the two that together cover the most clips
+      let bestPair = [0, 1], bestPairCount = 0;
+      for (let i = 0; i < csvData.length; i++) {
+        for (let j = i + 1; j < csvData.length; j++) {
+          // Count clips that match at least one of csv[i] or csv[j]
+          let covered = 0;
+          for (let k = 0; k < clipData.length; k++) {
+            if (isFinite(distMatrix[k][i]) || isFinite(distMatrix[k][j])) covered++;
+          }
+          if (covered > bestPairCount) { bestPairCount = covered; bestPair = [i, j]; }
         }
       }
-      vak1Data = csvData[0].vak;
-      vak2Data = csvData[1].vak;
-    } else {
-      // 0-1 CSVs → cannot distinguish athletes, single-athlete mode
-      group1 = [...clipData];
-      group2 = [];
-      vak1Data = csvData.length > 0 ? csvData[0].vak : { track: [] };
-      vak2Data = { track: [] };
-      if (csvData.length === 1) {
-        log(`  1 CSV loaded — all clips assigned to single athlete`);
-      } else {
-        log(`  No CSVs loaded — all clips assigned to single athlete`);
+
+      const csv1Idx = bestPair[0], csv2Idx = bestPair[1];
+      if (csvData.length > 2) {
+        log(`  Selected CSV pair: "${csvData[csv1Idx].name}" + "${csvData[csv2Idx].name}" (covers ${bestPairCount}/${clipData.length} clips)`);
       }
+
+      // Assign each clip to its nearest CSV of the selected pair
+      // Discard clips that don't time-overlap with either
+      let discarded = 0;
+      for (let k = 0; k < clipData.length; k++) {
+        const clip = clipData[k];
+        const d1 = distMatrix[k][csv1Idx];
+        const d2 = distMatrix[k][csv2Idx];
+        if (!isFinite(d1) && !isFinite(d2)) {
+          // Clip doesn't time-overlap with either CSV → skip it
+          const clipDay = epochToDay((clip.track[0].ts + clip.track[clip.track.length - 1].ts) / 2);
+          log(`    ${clip.name} (${clipDay}) — no time overlap with selected CSVs → skipped`, 'warn');
+          discarded++;
+          continue;
+        }
+        const d1Str = isFinite(d1) ? d1.toFixed(0) + 'm' : '—';
+        const d2Str = isFinite(d2) ? d2.toFixed(0) + 'm' : '—';
+        if (d1 <= d2) {
+          group1.push(clip);
+          log(`    ${clip.name}: ${csvData[csv1Idx].name}=${d1Str}  ${csvData[csv2Idx].name}=${d2Str} → Athlete 1 (Red)`);
+        } else {
+          group2.push(clip);
+          log(`    ${clip.name}: ${csvData[csv1Idx].name}=${d1Str}  ${csvData[csv2Idx].name}=${d2Str} → Athlete 2 (Blue)`);
+        }
+      }
+      if (discarded > 0) log(`  ${discarded} clip(s) discarded (wrong day / no time overlap)`, 'warn');
+
+      vak1Data = csvData[csv1Idx].vak;
+      vak2Data = csvData[csv2Idx].vak;
+
+    } else if (csvData.length === 1) {
+      // 1 CSV → keep only clips that time-overlap with it
+      log(`  1 CSV loaded — keeping only time-overlapping clips`);
+      let discarded = 0;
+      for (const clip of clipData) {
+        if (clipOverlapsCsv(clip, csvData[0])) {
+          group1.push(clip);
+          const d = clipDistToCsv(clip, csvData[0]);
+          log(`    ${clip.name}: ${isFinite(d) ? d.toFixed(0) + 'm' : '—'} → Athlete 1`);
+        } else {
+          const clipDay = epochToDay((clip.track[0].ts + clip.track[clip.track.length - 1].ts) / 2);
+          log(`    ${clip.name} (${clipDay}) — no time overlap → skipped`, 'warn');
+          discarded++;
+        }
+      }
+      if (discarded > 0) log(`  ${discarded} clip(s) discarded (wrong day)`, 'warn');
+      vak1Data = csvData[0].vak;
+      vak2Data = { track: [] };
+
+    } else {
+      // No CSVs → all clips, single-athlete mode
+      log(`  No CSVs loaded — all clips assigned to single athlete`);
+      group1 = [...clipData];
+      vak1Data = { track: [] };
+      vak2Data = { track: [] };
       for (const c of group1) log(`    ${c.name} → Athlete 1`);
+    }
+
+    if (group1.length === 0 && group2.length === 0) {
+      log('No clips match the selected CSV time range!', 'err');
+      btnProcess.disabled = false;
+      return;
     }
 
     // Ensure group1 is non-empty
