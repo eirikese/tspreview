@@ -124,7 +124,7 @@
     .vid-box{flex:1;min-height:250px;position:relative;border-radius:10px;overflow:hidden;display:flex;}
     .red-frame{border:3px solid #e53935;} .blue-frame{border:3px solid #1e88e5;}
     .vid-box video{position:absolute;top:0;left:0;width:100%;height:100%;
-      object-fit:contain;background:#000;display:none;}
+      object-fit:contain;background:#000;visibility:hidden;z-index:0;}
     .vid-box canvas.pose-overlay{position:absolute;top:0;left:0;width:100%;height:100%;
       object-fit:contain;pointer-events:none;z-index:10;}
 
@@ -1606,15 +1606,16 @@ function launchViewer(ds1, ds2, mp4FileMap, singleMode, name1, name2) {
       const v = document.createElement('video');
       v.setAttribute('playsinline', '');
       v.setAttribute('webkit-playsinline', '');
-      v.muted = true;
-      v.preload = 'auto';
+      v.preload = 'metadata';
       container.insertBefore(v, blk);
       seg.el = v;
 
-      // Load video from mp4FileMap
+      // Load video from mp4FileMap — use typed Blob for iOS compatibility
       const key = seg.name.toLowerCase();
       if (mp4FileMap[key]) {
-        v.src = URL.createObjectURL(mp4FileMap[key]);
+        const file = mp4FileMap[key];
+        const blob = new Blob([file], { type: file.type || 'video/mp4' });
+        v.src = URL.createObjectURL(blob);
         v.load();
         seg.loaded = true;
       }
@@ -1852,7 +1853,41 @@ function launchViewer(ds1, ds2, mp4FileMap, singleMode, name1, name2) {
   scrub.max = totalDur.toFixed(1);
   tDisp.textContent = '0:00 / ' + fmtElapsed(totalDur);
 
-  function playAll() { playing = true; lastTs = null; ppBtn.innerHTML = '&#9646;&#9646; Pause'; }
+  // ======================== iOS video unlock ========================
+  // iOS Safari requires a user-gesture-initiated play() to "unlock"
+  // each video element for future programmatic playback.
+  let iosUnlocked = false;
+  function unlockAllVideos() {
+    if (iosUnlocked) return;
+    iosUnlocked = true;
+    const allSegs = [...ds1.segments, ...ds2.segments];
+    allSegs.forEach(seg => {
+      if (seg.el && seg.loaded) {
+        seg.el.muted = true;
+        const p = seg.el.play();
+        if (p && p.then) p.then(() => { seg.el.pause(); seg.el.muted = false; }).catch(() => { seg.el.muted = false; });
+      }
+    });
+  }
+  // Unlock on first touch/click anywhere
+  document.addEventListener('touchstart', unlockAllVideos, { once: true });
+  document.addEventListener('click', unlockAllVideos, { once: true });
+
+  function playAll() {
+    unlockAllVideos();
+    playing = true; lastTs = null;
+    ppBtn.innerHTML = '&#9646;&#9646; Pause';
+    // Directly play active segments within user-gesture context (critical for iOS)
+    [ds1, ds2].forEach(ds => {
+      const ai = findActiveSeg(ds);
+      if (ai >= 0) {
+        const seg = ds.segments[ai];
+        if (seg.el && seg.loaded && seg.el.readyState >= 1 && seg.el.paused) {
+          seg.el.play().catch(() => {});
+        }
+      }
+    });
+  }
   function pauseAll() {
     playing = false; lastTs = null;
     ppBtn.innerHTML = '&#9654; Play';
@@ -1915,7 +1950,8 @@ function launchViewer(ds1, ds2, mp4FileMap, singleMode, name1, name2) {
     const ai = findActiveSeg(ds);
     ds.segments.forEach((seg, i) => {
       if (i === ai) {
-        seg.el.style.display = 'block';
+        seg.el.style.visibility = 'visible';
+        seg.el.style.zIndex = '2';
         if (seg.loaded && seg.el.readyState >= 1) {
           const target = epochToVTime(seg.epochs, seg.vTimes, masterEpoch);
           const drift = Math.abs(seg.el.currentTime - target);
@@ -1935,7 +1971,8 @@ function launchViewer(ds1, ds2, mp4FileMap, singleMode, name1, name2) {
           }
         }
       } else {
-        seg.el.style.display = 'none';
+        seg.el.style.visibility = 'hidden';
+        seg.el.style.zIndex = '0';
         if (!seg.el.paused) seg.el.pause();
       }
     });
