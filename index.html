@@ -58,6 +58,18 @@
     .assignment .blue{color:#42a5f5;font-weight:bold;}
     .assignment .grey{color:#667788;}
 
+    .athlete-row{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin:4px 0;font-size:12px;justify-content:flex-end;}
+    .athlete-row .file-label{color:#8899aa;min-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:monospace;margin-right:auto;}
+    .athlete-btn{background:#0b1220;color:#e6edf3;border:1px solid #223047;border-radius:8px;
+      padding:3px 10px;cursor:pointer;font-size:11px;white-space:nowrap;transition:all 0.15s;}
+    .athlete-btn:hover{border-color:#42a5f5;}
+    .athlete-btn.selected{background:#1a3050;border-color:#42a5f5;color:#42a5f5;font-weight:bold;}
+    .athlete-btn.add-btn{border-style:dashed;color:#556677;}
+    .athlete-btn.add-btn:hover{color:#42a5f5;}
+    .del-athletes-btn{background:none;border:1px solid #333;color:#667;border-radius:6px;
+      padding:2px 8px;font-size:10px;cursor:pointer;margin-left:auto;}
+    .del-athletes-btn:hover{border-color:#ef5350;color:#ef5350;}
+
     .setup-row{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-top:12px;}
 
     .settings-row{display:flex;gap:20px;align-items:center;flex-wrap:wrap;margin-top:8px;font-size:12px;}
@@ -122,7 +134,8 @@
     .sog-bar{grid-column:1/-1;background:#111826;border:1px solid #223047;
       border-radius:10px;padding:6px 12px;display:flex;flex-direction:column;gap:2px;}
     .sog-bar .sog-label{font-size:10px;opacity:0.6;}
-    #sogCanvas{width:100%;height:54px;border-radius:4px;cursor:crosshair;display:block;}
+    #sogCanvas{width:100%;height:80px;border-radius:4px;cursor:crosshair;display:block;}
+    #coverageCanvas{width:100%;height:14px;border-radius:3px;display:block;margin-top:2px;}
   </style>
 </head>
 <body>
@@ -158,6 +171,16 @@
       <input type="file" id="fCsv" accept=".csv,text/csv" multiple>
     </div>
     <div class="file-list" id="flCsv"></div>
+  </div>
+
+  <!-- Athlete Names -->
+  <div class="card" id="athleteCard" style="display:none;">
+    <div style="display:flex;align-items:center;">
+      <h2 style="flex:1;margin:0;">Connect Athlete Names</h2>
+      <button class="del-athletes-btn" id="btnDelAthletes" title="Clear all saved athlete names">&times; Clear names</button>
+    </div>
+    <p class="desc">Assign an athlete name to each file. Names are remembered for next time.</p>
+    <div id="athleteRows"></div>
   </div>
 
   <!-- Settings -->
@@ -237,7 +260,7 @@
         <div class="overlay mono">
           <div>UTC: <code id="oUTC">-</code></div>
           <hr>
-          <div style="color:#ef5350;font-weight:bold;">Athlete 1 (Red)</div>
+          <div style="color:#ef5350;font-weight:bold;" id="o1hdr">Athlete 1 (Red)</div>
           <div>Clip: <code id="o1clip">-</code></div>
           <div>GPS: <code id="o1gps">-</code></div>
           <div>Vakaros: <code id="o1vak">-</code></div>
@@ -258,22 +281,23 @@
     <!-- SOG timeseries -->
     <div class="sog-bar" id="sogBar" style="display:none;">
       <div style="display:flex;align-items:center;gap:8px;">
-        <span class="sog-label mono" style="flex:1;">SOG (m/s) — <span style="color:#ef5350;">Red</span> / <span style="color:#42a5f5;">Blue</span> — click or drag to scrub</span>
+        <span class="sog-label mono" style="flex:1;">SOG (m/s) — <span style="color:#ef5350;" id="sogName1">Red</span> / <span style="color:#42a5f5;" id="sogName2">Blue</span> — click or drag to scrub</span>
         <button id="sogZoomIn" title="Zoom in" style="padding:2px 8px;">+</button>
         <button id="sogZoomOut" title="Zoom out" style="padding:2px 8px;">&minus;</button>
         <button id="sogZoomReset" title="Reset zoom" style="padding:2px 8px;font-size:10px;">1:1</button>
       </div>
-      <canvas id="sogCanvas" height="54"></canvas>
+      <canvas id="sogCanvas" height="80"></canvas>
+      <canvas id="coverageCanvas" height="14"></canvas>
     </div>
 
     <!-- Bottom bar -->
     <div class="bottom-bar">
       <div class="file-row-v">
         <label style="margin-left:18px;cursor:pointer;user-select:none;">
-          <input type="checkbox" id="hideGoPro"> Hide GoPro GPS tracks
+          <input type="checkbox" id="hideGoPro" checked> Hide GoPro GPS tracks
         </label>
         <label style="margin-left:18px;cursor:pointer;user-select:none;">
-          <input type="checkbox" id="fadeTracks"> Fade tracks (±60 s window)
+          <input type="checkbox" id="fadeTracks"> Fade tracks (±5 min window)
         </label>
         <label style="margin-left:18px;cursor:pointer;user-select:none;">
           <input type="checkbox" id="poseToggle"> Pose detection
@@ -607,10 +631,15 @@ function parseVakarosCsv(text) {
 
   const has = (...names) => names.every(n => n in colMap);
 
-  // Detect SOG column
+  // Detect SOG column (m/s preferred, kts converted)
   let cSog = null;
-  for (const sn of ['sog_mps', 'sog']) {
-    if (sn in colMap) { cSog = colMap[sn]; break; }
+  let sogIsKts = false;
+  for (const sn of ['sog_mps', 'sog', 'sog_kts']) {
+    if (sn in colMap) {
+      cSog = colMap[sn];
+      sogIsKts = (sn === 'sog_kts');
+      break;
+    }
   }
 
   // Detect format
@@ -659,7 +688,8 @@ function parseVakarosCsv(text) {
       if (isNaN(lat) || isNaN(lon) || lat < -90 || lat > 90 || lon < -180 || lon > 180) continue;
       const pt = { lat, lon, ts };
       if (cSog !== null && parts.length > cSog) {
-        const sog = parseFloat(parts[cSog]);
+        let sog = parseFloat(parts[cSog]);
+        if (!isNaN(sog) && sogIsKts) sog *= 0.514444; // knots → m/s
         pt.sog = isNaN(sog) ? null : sog;
       }
       track.push(pt);
@@ -741,6 +771,98 @@ let mp4Files = [];
 let csvFiles = [];
 let processedData = null; // {ds1, ds2, mp4FileMap}
 
+// ======================== Athlete Name Management ========================
+const ATHLETE_STORAGE_KEY = 'dualViewer_athleteNames';
+const ATHLETE_FILE_MAP_KEY = 'dualViewer_athleteFileMap'; // filePrefix → athleteName
+let cachedAthletes = []; // list of known athlete names
+let fileAthleteMap = {}; // filename → selected athlete name
+
+function loadAthleteData() {
+  try {
+    cachedAthletes = JSON.parse(localStorage.getItem(ATHLETE_STORAGE_KEY) || '[]');
+    fileAthleteMap = JSON.parse(localStorage.getItem(ATHLETE_FILE_MAP_KEY) || '{}');
+  } catch (e) { cachedAthletes = []; fileAthleteMap = {}; }
+}
+function saveAthleteData() {
+  localStorage.setItem(ATHLETE_STORAGE_KEY, JSON.stringify(cachedAthletes));
+  localStorage.setItem(ATHLETE_FILE_MAP_KEY, JSON.stringify(fileAthleteMap));
+}
+function getFilePrefix(name) {
+  // Use first 4+ chars of filename stem as a stable prefix for matching
+  const stem = name.replace(/\.[^.]+$/, '');
+  return stem.length > 6 ? stem.substring(0, 6) : stem;
+}
+function guessAthlete(filename) {
+  // Check if we've seen this exact file before
+  if (fileAthleteMap[filename]) return fileAthleteMap[filename];
+  // Check prefix match from previous entries
+  const prefix = getFilePrefix(filename);
+  for (const [fn, ath] of Object.entries(fileAthleteMap)) {
+    if (getFilePrefix(fn) === prefix) return ath;
+  }
+  return null;
+}
+
+function renderAthleteCard() {
+  const allFiles = [...csvFiles];
+  const card = document.getElementById('athleteCard');
+  const rows = document.getElementById('athleteRows');
+  if (allFiles.length === 0) { card.style.display = 'none'; return; }
+  card.style.display = '';
+  rows.innerHTML = '';
+  for (const f of allFiles) {
+    const row = document.createElement('div');
+    row.className = 'athlete-row';
+    const label = document.createElement('span');
+    label.className = 'file-label';
+    label.textContent = f.name;
+    label.title = f.name;
+    row.appendChild(label);
+
+    const guess = guessAthlete(f.name);
+    if (guess && !fileAthleteMap[f.name]) fileAthleteMap[f.name] = guess;
+
+    for (const ath of cachedAthletes) {
+      const btn = document.createElement('button');
+      btn.className = 'athlete-btn' + (fileAthleteMap[f.name] === ath ? ' selected' : '');
+      btn.textContent = ath;
+      btn.addEventListener('click', () => {
+        fileAthleteMap[f.name] = ath;
+        saveAthleteData();
+        renderAthleteCard();
+      });
+      row.appendChild(btn);
+    }
+
+    const addBtn = document.createElement('button');
+    addBtn.className = 'athlete-btn add-btn';
+    addBtn.textContent = '+ Add';
+    addBtn.addEventListener('click', () => {
+      const name = prompt('Enter athlete name:');
+      if (name && name.trim()) {
+        const trimmed = name.trim();
+        if (!cachedAthletes.includes(trimmed)) cachedAthletes.push(trimmed);
+        fileAthleteMap[f.name] = trimmed;
+        saveAthleteData();
+        renderAthleteCard();
+      }
+    });
+    row.appendChild(addBtn);
+    rows.appendChild(row);
+  }
+}
+
+loadAthleteData();
+
+document.getElementById('btnDelAthletes').addEventListener('click', () => {
+  if (confirm('Clear all saved athlete names?')) {
+    cachedAthletes = [];
+    fileAthleteMap = {};
+    saveAthleteData();
+    renderAthleteCard();
+  }
+});
+
 // File list management
 function renderFileList(files, container, type) {
   container.innerHTML = '';
@@ -759,6 +881,7 @@ function renderFileList(files, container, type) {
       if (el.dataset.type === 'mp4') { mp4Files.splice(idx, 1); renderFileList(mp4Files, flMp4, 'mp4'); }
       else { csvFiles.splice(idx, 1); renderFileList(csvFiles, flCsv, 'csv'); }
       updateStatus();
+      renderAthleteCard();
     });
   });
 }
@@ -806,6 +929,7 @@ function addFiles(newFiles, fileArray, listEl, type) {
   }
   renderFileList(fileArray, listEl, type);
   updateStatus();
+  renderAthleteCard();
 }
 
 setupDropZone(document.getElementById('dzMp4'), document.getElementById('fMp4'), mp4Files, flMp4, 'mp4', ['mp4']);
@@ -820,6 +944,46 @@ function log(msg, cls = '') {
   logBox.appendChild(span);
   logBox.scrollTop = logBox.scrollHeight;
 }
+
+// ======================== Metadata cache (IndexedDB) ========================
+// Persists extracted GPS / CSV data across page reloads.
+const DB_NAME = 'dualViewerMetaCache';
+const DB_STORE = 'meta';
+const DB_VERSION = 1;
+
+function openCacheDB() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(DB_NAME, DB_VERSION);
+    req.onupgradeneeded = () => { req.result.createObjectStore(DB_STORE); };
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+async function cacheGet(key) {
+  try {
+    const db = await openCacheDB();
+    return new Promise((resolve) => {
+      const tx = db.transaction(DB_STORE, 'readonly');
+      const store = tx.objectStore(DB_STORE);
+      const req = store.get(key);
+      req.onsuccess = () => resolve(req.result || null);
+      req.onerror = () => resolve(null);
+    });
+  } catch { return null; }
+}
+async function cacheSet(key, value) {
+  try {
+    const db = await openCacheDB();
+    return new Promise((resolve) => {
+      const tx = db.transaction(DB_STORE, 'readwrite');
+      const store = tx.objectStore(DB_STORE);
+      store.put(value, key);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => resolve();
+    });
+  } catch {}
+}
+function cacheKey(file, extra) { return file.name + '_' + file.size + '_' + file.lastModified + (extra || ''); }
 
 // ================================================================
 //                    PROCESS PIPELINE
@@ -844,6 +1008,15 @@ btnProcess.addEventListener('click', async () => {
     const clipData = []; // {file, name, track}
     for (let i = 0; i < mp4Files.length; i++) {
       const file = mp4Files[i];
+      const ck = cacheKey(file, `_thin${thinInterval}_spd${maxSpeed}`);
+
+      const cached = await cacheGet(ck);
+      if (cached) {
+        log(`  [${i+1}/${mp4Files.length}] ${file.name} (cached — ${cached.track.length} pts)`, 'ok');
+        clipData.push({ file, name: file.name, track: cached.track });
+        continue;
+      }
+
       log(`  [${i+1}/${mp4Files.length}] ${file.name} (${(file.size/1e6).toFixed(0)} MB)...`);
       pbFill.style.width = '0%';
 
@@ -869,6 +1042,10 @@ btnProcess.addEventListener('click', async () => {
       const utcEnd = new Date(tsMax * 1000).toISOString().substring(11, 19);
       const tsNote = rawPts._usedFallbackTs ? ' (estimated)' : '';
       log(`    ✓ ${cleaned.length} GPS points  (${utcStart} – ${utcEnd} UTC${tsNote})`, 'ok');
+
+      // Cache the extracted data
+      await cacheSet(ck, { track: cleaned, usedFallback: !!rawPts._usedFallbackTs });
+
       clipData.push({ file, name: file.name, track: cleaned });
     }
 
@@ -881,6 +1058,16 @@ btnProcess.addEventListener('click', async () => {
     // ---- Phase 2: Parse CSVs ----
     const csvData = [];
     for (const csvFile of csvFiles) {
+      const ck = cacheKey(csvFile, '_csv');
+
+      const cached = await cacheGet(ck);
+      if (cached) {
+        const dayStr = epochToDay(cached.epochs[Math.floor(cached.epochs.length / 2)]);
+        log(`Parsing CSV: ${csvFile.name} (cached — ${cached.vak.track.length} pts, ${dayStr})`, 'ok');
+        csvData.push({ file: csvFile, name: csvFile.name, vak: cached.vak, track: cached.vak.track, epochs: cached.epochs });
+        continue;
+      }
+
       log(`Parsing CSV: ${csvFile.name}...`, 'info');
       try {
         const text = await readFileText(csvFile);
@@ -893,6 +1080,9 @@ btnProcess.addEventListener('click', async () => {
         const dayStr = epochToDay(epochs[Math.floor(epochs.length / 2)]);
         csvData.push({ file: csvFile, name: csvFile.name, vak, track: vak.track, epochs });
         log(`  ✓ ${vak.track.length} points (${dayStr})`, 'ok');
+
+        // Cache
+        await cacheSet(ck, { vak, epochs });
       } catch (e) {
         log(`  ✗ ${csvFile.name}: ${e.message}`, 'err');
       }
@@ -903,6 +1093,7 @@ btnProcess.addEventListener('click', async () => {
 
     let group1 = [], group2 = [];
     let vak1Data, vak2Data;
+    let csvName1 = null, csvName2 = null; // track which CSV file is assigned to each group
 
     if (csvData.length >= 2) {
       // Compute distance matrix: clipData × csvData
@@ -969,6 +1160,8 @@ btnProcess.addEventListener('click', async () => {
 
       vak1Data = csvData[csv1Idx].vak;
       vak2Data = csvData[csv2Idx].vak;
+      csvName1 = csvData[csv1Idx].name;
+      csvName2 = csvData[csv2Idx].name;
 
     } else if (csvData.length === 1) {
       // 1 CSV → keep only clips that time-overlap with it
@@ -988,6 +1181,7 @@ btnProcess.addEventListener('click', async () => {
       if (discarded > 0) log(`  ${discarded} clip(s) discarded (wrong day)`, 'warn');
       vak1Data = csvData[0].vak;
       vak2Data = { track: [] };
+      csvName1 = csvData[0].name;
 
     } else {
       // No CSVs → all clips, single-athlete mode
@@ -1008,6 +1202,7 @@ btnProcess.addEventListener('click', async () => {
     if (group1.length === 0 && group2.length > 0) {
       [group1, group2] = [group2, group1];
       [vak1Data, vak2Data] = [vak2Data, vak1Data];
+      [csvName1, csvName2] = [csvName2, csvName1];
     }
 
     const singleMode = group2.length === 0;
@@ -1039,16 +1234,24 @@ btnProcess.addEventListener('click', async () => {
     const ds1 = buildDs(group1, vak1Data);
     const ds2 = buildDs(group2, vak2Data);
 
+    // Resolve athlete names from CSV file assignments (GoPro clips auto-inherit)
+    function resolveAthleteName(csvFileName, fallback) {
+      if (csvFileName && fileAthleteMap[csvFileName]) return fileAthleteMap[csvFileName];
+      return fallback;
+    }
+    const name1 = resolveAthleteName(csvName1, 'Athlete 1');
+    const name2 = resolveAthleteName(csvName2, 'Athlete 2');
+
     // Show assignment
     assignBox.style.display = '';
     let aHtml = '';
     const mode = singleMode ? 'Single-athlete' : 'Dual-athlete';
     aHtml += `<div style="margin-bottom:6px;"><strong>${mode} mode</strong></div>`;
-    aHtml += `<div class="red">RED clips: ${ds1.segments.map(s => s.name).join(', ')}</div>`;
-    if (ds1.vakaros.track.length) aHtml += `<div class="red">RED Vakaros: ${ds1.vakaros.track.length} points</div>`;
+    aHtml += `<div class="red">RED — ${name1}: ${ds1.segments.map(s => s.name).join(', ')}</div>`;
+    if (ds1.vakaros.track.length) aHtml += `<div class="red">  Vakaros: ${ds1.vakaros.track.length} points</div>`;
     if (!singleMode) {
-      aHtml += `<div class="blue">BLUE clips: ${ds2.segments.map(s => s.name).join(', ')}</div>`;
-      if (ds2.vakaros.track.length) aHtml += `<div class="blue">BLUE Vakaros: ${ds2.vakaros.track.length} points</div>`;
+      aHtml += `<div class="blue">BLUE — ${name2}: ${ds2.segments.map(s => s.name).join(', ')}</div>`;
+      if (ds2.vakaros.track.length) aHtml += `<div class="blue">  Vakaros: ${ds2.vakaros.track.length} points</div>`;
     }
     assignBox.innerHTML = aHtml;
 
@@ -1060,7 +1263,7 @@ btnProcess.addEventListener('click', async () => {
       mp4FileMap[cd.name.toLowerCase()] = cd.file;
     }
 
-    processedData = { ds1, ds2, mp4FileMap, singleMode };
+    processedData = { ds1, ds2, mp4FileMap, singleMode, name1, name2 };
     launchRow.style.display = '';
   } catch (e) {
     log(`Error: ${e.message}`, 'err');
@@ -1074,10 +1277,10 @@ btnProcess.addEventListener('click', async () => {
 // ================================================================
 document.getElementById('btnLaunch').addEventListener('click', () => {
   if (!processedData) return;
-  launchViewer(processedData.ds1, processedData.ds2, processedData.mp4FileMap, processedData.singleMode);
+  launchViewer(processedData.ds1, processedData.ds2, processedData.mp4FileMap, processedData.singleMode, processedData.name1, processedData.name2);
 });
 
-function launchViewer(ds1, ds2, mp4FileMap, singleMode) {
+function launchViewer(ds1, ds2, mp4FileMap, singleMode, name1, name2) {
   document.getElementById('setupPhase').style.display = 'none';
   document.getElementById('viewerPhase').style.display = 'block';
 
@@ -1092,6 +1295,12 @@ function launchViewer(ds1, ds2, mp4FileMap, singleMode) {
   const vakTrack2 = (ds2.vakaros && ds2.vakaros.track) || [];
   const vakEpochs1 = vakTrack1.map(p => p.ts);
   const vakEpochs2 = vakTrack2.map(p => p.ts);
+
+  // Set athlete names in viewer UI
+  document.getElementById('o1hdr').textContent = name1 + ' (Red)';
+  document.getElementById('o2hdr').textContent = name2 + ' (Blue)';
+  document.getElementById('sogName1').textContent = name1;
+  document.getElementById('sogName2').textContent = name2;
 
   // Stats
   document.getElementById('nc1').textContent = ds1.segments.length;
@@ -1234,19 +1443,13 @@ function launchViewer(ds1, ds2, mp4FileMap, singleMode) {
     ? L.polyline(allGps2.map(p => [p.lat, p.lon]), { color: '#888', weight: 2, opacity: 0.25, dashArray: '4 3' }).addTo(map) : null;
   [greyVak1, greyMp41, greyVak2, greyMp42].forEach(l => { if (l) map.removeLayer(l); });
 
-  const FADE_WIN = 60;
-  const FADE_OUTER = 15;
-  const FADE_INNER = 15;
+  const FADE_WIN = 300; // ±5 min
 
   function makeFadeSet(color, weight, dashArr) {
     const opts = { weight, interactive: false };
     if (dashArr) opts.dashArray = dashArr;
     return {
-      ultraFadeIn: L.polyline([], Object.assign({}, opts, { color, opacity: 0.15 })),
-      fadeIn: L.polyline([], Object.assign({}, opts, { color, opacity: 0.35 })),
       solid: L.polyline([], Object.assign({}, opts, { color, opacity: 0.85 })),
-      fadeOut: L.polyline([], Object.assign({}, opts, { color, opacity: 0.35 })),
-      ultraFadeOut: L.polyline([], Object.assign({}, opts, { color, opacity: 0.15 })),
     };
   }
   const fadeVak1 = makeFadeSet('#e53935', 3);
@@ -1259,32 +1462,19 @@ function launchViewer(ds1, ds2, mp4FileMap, singleMode) {
 
   function sliceTrack(pts, epochs, ep) {
     const tLo = ep - FADE_WIN, tHi = ep + FADE_WIN;
-    const tUltraFadeEnd = ep - FADE_WIN + FADE_OUTER;
-    const tFadeInEnd = ep - FADE_WIN + FADE_OUTER + FADE_INNER;
-    const tFadeOutStart = ep + FADE_WIN - FADE_OUTER - FADE_INNER;
-    const tUltraFadeStart = ep + FADE_WIN - FADE_OUTER;
     let lo = 0, hi = epochs.length;
     while (lo < hi) { const m = (lo + hi) >> 1; epochs[m] < tLo ? lo = m + 1 : hi = m; }
     const iStart = lo;
     lo = iStart; hi = epochs.length;
     while (lo < hi) { const m = (lo + hi) >> 1; epochs[m] <= tHi ? lo = m + 1 : hi = m; }
     const iEnd = lo;
-    if (iStart >= iEnd) return { ultraFadeIn: [], fadeIn: [], solid: [], fadeOut: [], ultraFadeOut: [] };
+    if (iStart >= iEnd) return { solid: [] };
 
-    const ultraFadeInPts = [], fadeInPts = [], solidPts = [], fadeOutPts = [], ultraFadeOutPts = [];
+    const solidPts = [];
     for (let i = iStart; i < iEnd; i++) {
-      const t = epochs[i], ll = [pts[i].lat, pts[i].lon];
-      if (t < tUltraFadeEnd) ultraFadeInPts.push(ll);
-      else if (t < tFadeInEnd) fadeInPts.push(ll);
-      else if (t <= tFadeOutStart) solidPts.push(ll);
-      else if (t <= tUltraFadeStart) fadeOutPts.push(ll);
-      else ultraFadeOutPts.push(ll);
+      solidPts.push([pts[i].lat, pts[i].lon]);
     }
-    if (ultraFadeInPts.length && fadeInPts.length) fadeInPts.unshift(ultraFadeInPts[ultraFadeInPts.length - 1]);
-    if (fadeInPts.length && solidPts.length) solidPts.unshift(fadeInPts[fadeInPts.length - 1]);
-    if (solidPts.length && fadeOutPts.length) fadeOutPts.unshift(solidPts[solidPts.length - 1]);
-    if (fadeOutPts.length && ultraFadeOutPts.length) ultraFadeOutPts.unshift(fadeOutPts[fadeOutPts.length - 1]);
-    return { ultraFadeIn: ultraFadeInPts, fadeIn: fadeInPts, solid: solidPts, fadeOut: fadeOutPts, ultraFadeOut: ultraFadeOutPts };
+    return { solid: solidPts };
   }
 
   const vakEpochArr1 = vakTrack1.map(p => p.ts);
@@ -1302,11 +1492,7 @@ function launchViewer(ds1, ds2, mp4FileMap, singleMode) {
     for (const [fs, pts, epochs] of pairs) {
       if (!pts.length) continue;
       const s = sliceTrack(pts, epochs, ep);
-      fs.ultraFadeIn.setLatLngs(s.ultraFadeIn);
-      fs.fadeIn.setLatLngs(s.fadeIn);
       fs.solid.setLatLngs(s.solid);
-      fs.fadeOut.setLatLngs(s.fadeOut);
-      fs.ultraFadeOut.setLatLngs(s.ultraFadeOut);
     }
   }
 
@@ -1314,21 +1500,18 @@ function launchViewer(ds1, ds2, mp4FileMap, singleMode) {
     [vakLine1, mp4Line1, vakLine2, mp4Line2].forEach(l => { if (l) map.removeLayer(l); });
     [greyVak1, greyMp41, greyVak2, greyMp42].forEach(l => { if (l) map.addLayer(l); });
     allFadeSets.forEach(fs => {
-      map.addLayer(fs.ultraFadeIn); map.addLayer(fs.fadeIn); map.addLayer(fs.solid);
-      map.addLayer(fs.fadeOut); map.addLayer(fs.ultraFadeOut);
+      map.addLayer(fs.solid);
     });
     if (goProGpsHidden) {
       [greyMp41, greyMp42].forEach(l => { if (l) map.removeLayer(l); });
       [fadeMp41, fadeMp42].forEach(fs => {
-        map.removeLayer(fs.ultraFadeIn); map.removeLayer(fs.fadeIn); map.removeLayer(fs.solid);
-        map.removeLayer(fs.fadeOut); map.removeLayer(fs.ultraFadeOut);
+        map.removeLayer(fs.solid);
       });
     }
   }
   function disableFade() {
     allFadeSets.forEach(fs => {
-      map.removeLayer(fs.ultraFadeIn); map.removeLayer(fs.fadeIn); map.removeLayer(fs.solid);
-      map.removeLayer(fs.fadeOut); map.removeLayer(fs.ultraFadeOut);
+      map.removeLayer(fs.solid);
     });
     [greyVak1, greyMp41, greyVak2, greyMp42].forEach(l => { if (l) map.removeLayer(l); });
     [vakLine1, mp4Line1, vakLine2, mp4Line2].forEach(l => { if (l) map.addLayer(l); });
@@ -1604,7 +1787,11 @@ function launchViewer(ds1, ds2, mp4FileMap, singleMode) {
   updateAllFileStatus();
 
   // ======================== Hide GoPro GPS toggle ========================
-  let goProGpsHidden = false;
+  let goProGpsHidden = true; // default hidden
+  // Apply default hidden state at init
+  [mp4Line1, mp4Line2].forEach(l => { if (l) map.removeLayer(l); });
+  [mp4Dot1, mp4Dot2].forEach(d => { if (d) d.setStyle({ opacity: 0, fillOpacity: 0 }); });
+
   document.getElementById('hideGoPro').addEventListener('change', function () {
     goProGpsHidden = this.checked;
     if (fadeMode) {
@@ -1614,11 +1801,9 @@ function launchViewer(ds1, ds2, mp4FileMap, singleMode) {
       });
       [fadeMp41, fadeMp42].forEach(fs => {
         if (goProGpsHidden) {
-          map.removeLayer(fs.ultraFadeIn); map.removeLayer(fs.fadeIn); map.removeLayer(fs.solid);
-          map.removeLayer(fs.fadeOut); map.removeLayer(fs.ultraFadeOut);
+          map.removeLayer(fs.solid);
         } else {
-          map.addLayer(fs.ultraFadeIn); map.addLayer(fs.fadeIn); map.addLayer(fs.solid);
-          map.addLayer(fs.fadeOut); map.addLayer(fs.ultraFadeOut);
+          map.addLayer(fs.solid);
         }
       });
     } else {
@@ -1673,9 +1858,20 @@ function launchViewer(ds1, ds2, mp4FileMap, singleMode) {
   });
 
   document.addEventListener('keydown', e => {
-    if (e.code === 'Space' && e.target.tagName !== 'INPUT' && e.target.tagName !== 'TEXTAREA') {
+    if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+    if (e.code === 'Space') {
       e.preventDefault();
       playing ? pauseAll() : playAll();
+    } else if (e.code === 'ArrowLeft') {
+      e.preventDefault();
+      if (playing) pauseAll();
+      masterEpoch = Math.max(epochMin, masterEpoch - 10);
+      syncUI();
+    } else if (e.code === 'ArrowRight') {
+      e.preventDefault();
+      if (playing) pauseAll();
+      masterEpoch = Math.min(epochMax, masterEpoch + 10);
+      syncUI();
     }
   });
 
@@ -1873,6 +2069,7 @@ function launchViewer(ds1, ds2, mp4FileMap, singleMode) {
       canvas.height = rect.height * dpr;
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       renderStatic();
+      renderCoverage();
       drawCursor();
     }
 
@@ -1889,17 +2086,20 @@ function launchViewer(ds1, ds2, mp4FileMap, singleMode) {
       offCtx.fillStyle = '#0b1220';
       offCtx.fillRect(0, 0, W, H);
 
+      const PAD_TOP = 6, PAD_BOT = 4;
+      const plotH = H - PAD_TOP - PAD_BOT;
+
       offCtx.strokeStyle = 'rgba(255,255,255,0.06)';
       offCtx.lineWidth = 1;
       for (let i = 1; i <= 2; i++) {
-        const y = H - (i / 3) * H;
+        const y = PAD_TOP + plotH - (i / 3) * plotH;
         offCtx.beginPath(); offCtx.moveTo(0, y); offCtx.lineTo(W, y); offCtx.stroke();
       }
 
       offCtx.fillStyle = 'rgba(255,255,255,0.3)';
       offCtx.font = '9px monospace';
       offCtx.textBaseline = 'bottom';
-      offCtx.fillText((sogMax / 1.1).toFixed(1) + ' m/s', 3, 12);
+      offCtx.fillText((sogMax / 1.1).toFixed(1) + ' m/s', 3, PAD_TOP + 8);
       if (sogZoom > 1) {
         offCtx.textBaseline = 'top';
         offCtx.fillText(sogZoom + 'x', W - 30, 3);
@@ -1908,12 +2108,12 @@ function launchViewer(ds1, ds2, mp4FileMap, singleMode) {
       function drawLine(pts, color) {
         if (pts.length < 2) return;
         offCtx.strokeStyle = color;
-        offCtx.lineWidth = 1;
-        offCtx.globalAlpha = 0.8;
+        offCtx.lineWidth = 1.5;
+        offCtx.globalAlpha = 0.85;
         offCtx.beginPath();
         for (let i = 0; i < pts.length; i++) {
           const x = ((pts[i].ts - sogViewLo) / vSpan) * W;
-          const y = H - (pts[i].sog / sogMax) * H;
+          const y = PAD_TOP + plotH - (pts[i].sog / sogMax) * plotH;
           if (i === 0) offCtx.moveTo(x, y); else offCtx.lineTo(x, y);
         }
         offCtx.stroke();
@@ -1921,6 +2121,46 @@ function launchViewer(ds1, ds2, mp4FileMap, singleMode) {
       }
       drawLine(sog1, '#e53935');
       drawLine(sog2, '#42a5f5');
+    }
+
+    // ======================== Video coverage bars ========================
+    const covCanvas = document.getElementById('coverageCanvas');
+    const covCtx = covCanvas.getContext('2d');
+
+    function renderCoverage() {
+      const rect = covCanvas.getBoundingClientRect();
+      const dpr = window.devicePixelRatio || 1;
+      covCanvas.width = rect.width * dpr;
+      covCanvas.height = rect.height * dpr;
+      const covDrawCtx = covCtx;
+      covDrawCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      const W = rect.width, H = rect.height;
+      const vSpan = sogViewHi - sogViewLo;
+      if (vSpan <= 0) return;
+      const barH = (H - 2) / 2; // 2 rows with 1px gap
+
+      covDrawCtx.fillStyle = '#0b1220';
+      covDrawCtx.fillRect(0, 0, W, H);
+
+      function drawBars(segments, color, yOff) {
+        covDrawCtx.fillStyle = color;
+        for (const seg of segments) {
+          const x0 = ((seg.epochMin - sogViewLo) / vSpan) * W;
+          const x1 = ((seg.epochMax - sogViewLo) / vSpan) * W;
+          if (x1 < 0 || x0 > W) continue;
+          covDrawCtx.fillRect(Math.max(0, x0), yOff, Math.min(W, x1) - Math.max(0, x0), barH);
+        }
+      }
+      drawBars(ds1.segments, 'rgba(229,57,53,0.6)', 0);
+      drawBars(ds2.segments, 'rgba(66,165,245,0.6)', barH + 2);
+
+      // cursor line
+      const cx = ((masterEpoch - sogViewLo) / vSpan) * W;
+      covDrawCtx.strokeStyle = '#ffffff';
+      covDrawCtx.lineWidth = 1;
+      covDrawCtx.globalAlpha = 0.5;
+      covDrawCtx.beginPath(); covDrawCtx.moveTo(cx, 0); covDrawCtx.lineTo(cx, H); covDrawCtx.stroke();
+      covDrawCtx.globalAlpha = 1;
     }
 
     function drawCursor() {
@@ -1947,21 +2187,22 @@ function launchViewer(ds1, ds2, mp4FileMap, singleMode) {
     const origSyncUI = syncUI;
     syncUI = function () {
       origSyncUI();
-      if (sogZoom > 1) renderStatic();
+      if (sogZoom > 1) { renderStatic(); renderCoverage(); }
       drawCursor();
+      renderCoverage();
     };
 
     document.getElementById('sogZoomIn').addEventListener('click', () => {
       sogZoom = Math.min(sogZoom * 2, 64);
-      renderStatic(); drawCursor();
+      renderStatic(); renderCoverage(); drawCursor();
     });
     document.getElementById('sogZoomOut').addEventListener('click', () => {
       sogZoom = Math.max(sogZoom / 2, 1);
-      renderStatic(); drawCursor();
+      renderStatic(); renderCoverage(); drawCursor();
     });
     document.getElementById('sogZoomReset').addEventListener('click', () => {
       sogZoom = 1;
-      renderStatic(); drawCursor();
+      renderStatic(); renderCoverage(); drawCursor();
     });
 
     let sogDragging = false;
