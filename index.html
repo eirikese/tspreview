@@ -679,36 +679,30 @@ function readFileText(file) {
 }
 
 // ================================================================
-//                    CAMERA GROUPING & MATCHING
+//                    CLIP MATCHING (GPS-based, no filenames)
 // ================================================================
-function cameraId(name) {
-  const stem = name.replace(/\.[^.]+$/, '');
-  return stem.length >= 4 ? stem.slice(-4) : stem;
-}
 
-function camDistToCsv(camGrp, csvEntry) {
+/** Average GPS distance in metres between a clip's track and a CSV's track (time-matched) */
+function clipDistToCsv(clip, csvEntry) {
   const csvEpochs = csvEntry.epochs;
   const csvTrack = csvEntry.track;
   const n = csvEpochs.length;
   if (n === 0) return Infinity;
 
   let totalD = 0, count = 0;
-  for (const q of camGrp) {
-    for (const pt of q.track) {
-      // Binary search for nearest epoch
-      let lo = 0, hi = n;
-      while (lo < hi) { const m = (lo + hi) >> 1; csvEpochs[m] < pt.ts ? lo = m + 1 : hi = m; }
-      let bestI = Math.min(lo, n - 1);
-      if (lo > 0 && Math.abs(csvEpochs[lo - 1] - pt.ts) < Math.abs(csvEpochs[bestI] - pt.ts)) {
-        bestI = lo - 1;
-      }
-      if (Math.abs(csvEpochs[bestI] - pt.ts) > 300) continue;
-      const cp = csvTrack[bestI];
-      const dlat = (pt.lat - cp.lat) * 111320;
-      const dlon = (pt.lon - cp.lon) * 111320 * Math.cos(pt.lat * Math.PI / 180);
-      totalD += Math.sqrt(dlat * dlat + dlon * dlon);
-      count++;
+  for (const pt of clip.track) {
+    let lo = 0, hi = n;
+    while (lo < hi) { const m = (lo + hi) >> 1; csvEpochs[m] < pt.ts ? lo = m + 1 : hi = m; }
+    let bestI = Math.min(lo, n - 1);
+    if (lo > 0 && Math.abs(csvEpochs[lo - 1] - pt.ts) < Math.abs(csvEpochs[bestI] - pt.ts)) {
+      bestI = lo - 1;
     }
+    if (Math.abs(csvEpochs[bestI] - pt.ts) > 300) continue;
+    const cp = csvTrack[bestI];
+    const dlat = (pt.lat - cp.lat) * 111320;
+    const dlon = (pt.lon - cp.lon) * 111320 * Math.cos(pt.lat * Math.PI / 180);
+    totalD += Math.sqrt(dlat * dlat + dlon * dlon);
+    count++;
   }
   return count > 0 ? totalD / count : Infinity;
 }
@@ -877,167 +871,80 @@ btnProcess.addEventListener('click', async () => {
       }
     }
 
-    // ---- Phase 3: Group by camera ID ----
-    const camGroups = {};
-    for (const cd of clipData) {
-      const cid = cameraId(cd.name);
-      if (!camGroups[cid]) camGroups[cid] = [];
-      camGroups[cid].push(cd);
-    }
-    const camIds = Object.keys(camGroups);
-    const nCams = camIds.length;
+    // ---- Phase 3: Assign clips to athletes (GPS-proximity to CSV reference tracks) ----
+    log(`\nPhase 3: Assigning ${clipData.length} clip(s) to athletes...`, 'info');
 
-    log(`\nDetected ${nCams} camera group(s):`, 'info');
-    for (const cid of camIds) {
-      const names = camGroups[cid].map(c => c.name).join(', ');
-      log(`  Camera '${cid}': ${camGroups[cid].length} clip(s) — ${names}`);
-    }
+    let group1 = [], group2 = [];
+    let vak1Data, vak2Data;
 
-    // ---- Phase 4: Assignment ----
-    let g1Ids, g2Ids, vak1Data, vak2Data;
-
-    if (nCams < 2) {
-      if (csvData.length >= 2) {
-        // Single camera group but 2+ CSVs → split individual clips by
-        // proximity to each CSV to enable dual-athlete mode.
-        log(`Single camera group '${camIds[0]}' with ${csvData.length} CSVs — splitting clips by GPS proximity...`, 'info');
-        const clips = camGroups[camIds[0]];
-        const g1Clips = [], g2Clips = [];
-        for (const clip of clips) {
-          const fakeCam = [clip];
-          const d0 = camDistToCsv(fakeCam, csvData[0]);
-          const d1 = camDistToCsv(fakeCam, csvData[1]);
-          if (d0 <= d1) g1Clips.push(clip); else g2Clips.push(clip);
-          log(`    ${clip.name}: CSV1=${d0.toFixed(0)}m  CSV2=${d1.toFixed(0)}m → ${d0 <= d1 ? 'Athlete 1' : 'Athlete 2'}`);
-        }
-        // Build virtual camera groups
-        if (g1Clips.length > 0 && g2Clips.length > 0) {
-          const g1Id = camIds[0] + '_A', g2Id = camIds[0] + '_B';
-          camGroups[g1Id] = g1Clips;
-          camGroups[g2Id] = g2Clips;
-          g1Ids = [g1Id];
-          g2Ids = [g2Id];
-          vak1Data = csvData[0].vak;
-          vak2Data = csvData[1].vak;
+    if (csvData.length >= 2) {
+      // 2+ CSVs → assign each clip to its nearest CSV by GPS proximity
+      log(`  ${csvData.length} CSV reference tracks loaded — matching each clip by GPS proximity`);
+      for (const clip of clipData) {
+        // Measure distance to each CSV
+        const dists = csvData.map(ce => clipDistToCsv(clip, ce));
+        const bestIdx = dists.indexOf(Math.min(...dists));
+        const distStr = csvData.map((ce, i) => `${ce.name}=${dists[i] === Infinity ? '∞' : dists[i].toFixed(0) + 'm'}`).join('  ');
+        // Assign to group based on which CSV is closest
+        // CSV 0 → Athlete 1 (Red), CSV 1 → Athlete 2 (Blue)
+        if (bestIdx === 0) {
+          group1.push(clip);
+          log(`    ${clip.name}: ${distStr} → Athlete 1 (Red)`);
         } else {
-          // All clips are closer to one CSV — fall back to single mode
-          g1Ids = [...camIds];
-          g2Ids = [];
-          const dists = csvData.map(ce => camDistToCsv(camGroups[camIds[0]], ce));
-          const bestIdx = dists.indexOf(Math.min(...dists));
-          vak1Data = csvData[bestIdx].vak;
-          vak2Data = { track: [] };
-          log(`All clips match same CSV — single-athlete mode`, 'warn');
+          group2.push(clip);
+          log(`    ${clip.name}: ${distStr} → Athlete 2 (Blue)`);
         }
-      } else {
-        // Single camera group, 0-1 CSVs
-        g1Ids = [...camIds];
-        g2Ids = [];
-        vak1Data = csvData.length > 0 ? csvData[0].vak : { track: [] };
-        vak2Data = { track: [] };
       }
-    } else if (csvData.length >= 2) {
-      // Multiple cameras, 2+ CSVs → optimal partition
-      log(`\nMatching cameras to CSVs...`, 'info');
-      const camDists = {};
-      for (const cid of camIds) {
-        camDists[cid] = csvData.map(ce => camDistToCsv(camGroups[cid], ce));
-        const distStr = csvData.map((ce, i) => `${ce.name}=${camDists[cid][i].toFixed(0)}m`).join('  ');
-        log(`  Camera '${cid}': ${distStr}`);
-      }
-
-      let bestCost = Infinity, bestMask = 0;
-      for (let mask = 1; mask < (1 << nCams) - 1; mask++) {
-        let cost = 0;
-        for (let bit = 0; bit < nCams; bit++) {
-          cost += camDists[camIds[bit]][(mask >> bit) & 1 ? 0 : 1] * camGroups[camIds[bit]].length;
-        }
-        if (cost < bestCost) { bestCost = cost; bestMask = mask; }
-      }
-
-      g1Ids = camIds.filter((_, b) => (bestMask >> b) & 1);
-      g2Ids = camIds.filter((_, b) => !((bestMask >> b) & 1));
       vak1Data = csvData[0].vak;
       vak2Data = csvData[1].vak;
-    } else if (csvData.length === 1) {
-      // Multiple cameras, 1 CSV
-      const scored = camIds.map(cid => [camDistToCsv(camGroups[cid], csvData[0]), cid])
-        .sort((a, b) => a[0] - b[0]);
-      const mid = Math.floor(scored.length / 2) || 1;
-      g1Ids = scored.slice(0, mid).map(s => s[1]);
-      g2Ids = scored.slice(mid).map(s => s[1]);
-      vak1Data = csvData[0].vak;
-      vak2Data = { track: [] };
     } else {
-      // No CSVs — split by mean GPS position
-      const camCen = {};
-      for (const cid of camIds) {
-        const allPts = camGroups[cid].flatMap(q => q.track);
-        camCen[cid] = {
-          lat: allPts.reduce((s, p) => s + p.lat, 0) / allPts.length,
-          lon: allPts.reduce((s, p) => s + p.lon, 0) / allPts.length,
-        };
-      }
-      // Find farthest pair
-      let maxD = -1, si = 0, sj = 1;
-      for (let i = 0; i < nCams; i++) {
-        for (let j = i + 1; j < nCams; j++) {
-          const d = Math.pow(camCen[camIds[i]].lat - camCen[camIds[j]].lat, 2) +
-                    Math.pow(camCen[camIds[i]].lon - camCen[camIds[j]].lon, 2);
-          if (d > maxD) { maxD = d; si = i; sj = j; }
-        }
-      }
-      const s1 = camCen[camIds[si]], s2 = camCen[camIds[sj]];
-      g1Ids = []; g2Ids = [];
-      for (const cid of camIds) {
-        const cc = camCen[cid];
-        const d1 = Math.pow(cc.lat - s1.lat, 2) + Math.pow(cc.lon - s1.lon, 2);
-        const d2 = Math.pow(cc.lat - s2.lat, 2) + Math.pow(cc.lon - s2.lon, 2);
-        if (d1 <= d2) g1Ids.push(cid); else g2Ids.push(cid);
-      }
-      vak1Data = { track: [] };
+      // 0-1 CSVs → cannot distinguish athletes, single-athlete mode
+      group1 = [...clipData];
+      group2 = [];
+      vak1Data = csvData.length > 0 ? csvData[0].vak : { track: [] };
       vak2Data = { track: [] };
+      if (csvData.length === 1) {
+        log(`  1 CSV loaded — all clips assigned to single athlete`);
+      } else {
+        log(`  No CSVs loaded — all clips assigned to single athlete`);
+      }
+      for (const c of group1) log(`    ${c.name} → Athlete 1`);
     }
 
-    // Ensure ds1 has content
-    if (g1Ids.length === 0 && g2Ids.length > 0) {
-      [g1Ids, g2Ids] = [g2Ids, g1Ids];
+    // Ensure group1 is non-empty
+    if (group1.length === 0 && group2.length > 0) {
+      [group1, group2] = [group2, group1];
       [vak1Data, vak2Data] = [vak2Data, vak1Data];
     }
 
-    const singleMode = g2Ids.length === 0;
+    const singleMode = group2.length === 0;
 
-    // ---- Phase 5: Build datasets ----
-    function buildDs(ids, vakData) {
+    // ---- Phase 4: Build datasets ----
+    function buildDs(clips, vakData) {
       const segments = [];
-      for (const cid of ids) {
-        for (const cd of camGroups[cid]) {
-          const track = cd.track;
-          const epochs = track.map(p => p.ts);
-          // 't' (video time) will be computed when video duration is known.
-          // For now, store fileProgress and estimate t linearly from epoch range.
-          // When the video loads, loadedmetadata will recompute vTimes properly.
-          const epMin = Math.min(...epochs);
-          const epMax = Math.max(...epochs);
-          segments.push({
-            name: cd.name,
-            gps: track.map(p => ({
-              lat: p.lat, lon: p.lon, ts: p.ts,
-              t: 0, // placeholder — finalized on loadedmetadata
-              fileProgress: p.fileProgress || 0
-            })),
-            epochMin: epMin,
-            epochMax: epMax,
-            _file: cd.file,
-          });
-        }
+      for (const cd of clips) {
+        const track = cd.track;
+        const epochs = track.map(p => p.ts);
+        const epMin = Math.min(...epochs);
+        const epMax = Math.max(...epochs);
+        segments.push({
+          name: cd.name,
+          gps: track.map(p => ({
+            lat: p.lat, lon: p.lon, ts: p.ts,
+            t: 0, // placeholder — finalized on loadedmetadata
+            fileProgress: p.fileProgress || 0
+          })),
+          epochMin: epMin,
+          epochMax: epMax,
+          _file: cd.file,
+        });
       }
       segments.sort((a, b) => a.epochMin - b.epochMin);
       return { segments, vakaros: vakData };
     }
 
-    const ds1 = buildDs(g1Ids, vak1Data);
-    const ds2 = buildDs(g2Ids, vak2Data);
+    const ds1 = buildDs(group1, vak1Data);
+    const ds2 = buildDs(group2, vak2Data);
 
     // Show assignment
     assignBox.style.display = '';
